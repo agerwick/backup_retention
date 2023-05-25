@@ -97,9 +97,12 @@ def delete_files(file_flags, verbose):
         if not flags:  # No flags present for the file
             print(f"deleting {file}...") if verbose else None
             try:
-                os.remove(file)
+                if os.path.isfile(file):
+                    os.remove(file)
+                elif os.path.isdir(file):
+                    shutil.rmtree(file)
             except OSError as e:
-                print(f"Error deleting file '{file}': {e}")
+                print(f"Error deleting file or directory '{file}': {e}")
         else:
             print(f"keeping  {file}...") if verbose else None
 
@@ -153,12 +156,12 @@ def main():
             file_datetime = get_file_datetime(file, args.format)
             if file_datetime: # the datetime is valid
                 if file_datetime > datetime.now(): # date/time is in the future
-                    file_flags[file] = ["future datetime"]
+                    file_flags[file] = ["timestamp is in the future"]
                 else:
                     file_datetime_map[file] = file_datetime
                     file_flags[file] = [] # empty means it will be deleted unless a reason to keep it is added later
             else:
-                file_flags[file] = ["invalid datetime"]
+                file_flags[file] = ["invalid timestamp"]
         
     # print("file_datetime_map:", file_datetime_map) # debug
         
