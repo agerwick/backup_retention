@@ -449,7 +449,7 @@ this results in the following being retained:
         ['hours',       files_grouped_by_hour,      "hour {i}/{j} ({t})"      ],
         ['days',        files_grouped_by_day,       "day {i}/{j} ({t})"       ],
         ['weeks',       files_grouped_by_week,      "week {i}/{j} ({t})"      ],
-        ['fortnights',  files_grouped_by_week,      "fortnight {i}/{j} ({t})" ],
+        ['fortnights',  files_grouped_by_fortnight, "fortnight {i}/{j} ({t})" ],
         ['months',      files_grouped_by_month,     "month {i}/{j} ({t})"     ],
         ['quarters',    files_grouped_by_quarter,   "quarter {i}/{j} ({t})"   ],
         ['half_years',  files_grouped_by_half_year, "half-year {i}/{j} ({t})" ],
@@ -466,6 +466,7 @@ this results in the following being retained:
     for time_unit, grouped_files, status_template in time_units_and_files:
         if time_unit in retention: # if user has chosen to retain files based on this time unit
             retention_count = original_retention_count = retention[time_unit]
+            last_group = list(grouped_files.keys())[-1]  # Get the last group from the dictionary keys
             for group, files in grouped_files.items(): # iterate through groups with files within that group
                 # examples of groups: "2017-W41" for week, "2023-10" for month, "20230517" for day, ...
                 if last_file_in_previous_group: # if we're using cumulative retention and the previous time unit is done
@@ -480,11 +481,12 @@ this results in the following being retained:
                     status_msg = status_template.format(i=original_retention_count-retention_count+1, j=original_retention_count, t=group)
                     file_flags[current_file].append(status_msg)
                     retention_count -= 1
-
-                if retention_count < 1: # no more files from this group to be added
+                
+                if (retention_count < 1 # no more files from this group to be added
+                or group == last_group): # ran out of files (retention_count still not 0 even at the last group
                     if args.method == "cumulative":
-                        last_file_in_previous_group = current_file
-                    break # no point continueing with further files in this group if we've already used all of retention_count
+                        last_file_in_previous_group = current_file # this tells this code block where to start processing when iterating over the next time_unit.
+                    break # no point continuing with further groups in this time_unit if we've already used all of retention_count
 
     if args.action=="list":
         list_files(file_flags, args.verbose)

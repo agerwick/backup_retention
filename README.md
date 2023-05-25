@@ -6,6 +6,7 @@ It is highly configurable and can work with files or directories of any time and
 Example usage
 -------------
 Progressive Retention (default)
+
 python backup_retention.py /home/me/my_backups --retention "latest=3 days=7 weeks=6 months=12 quarters=12 years=10" --verbose --action=list
 this makes sure that the following are retained:
 - the latest 3 files, regardless of timestamp
@@ -17,6 +18,7 @@ this makes sure that the following are retained:
 - files older than 10 years, and those not covered by the above statements will be listed, moved or deleted, depending on your action.
 
 Cumulative Retention (add --method=cumulative to enable)
+
 python backup_retention.py /home/me/my_backups --retention "latest=3 days=7 weeks=6 months=12 quarters=8 years=5" --verbose --action=list --method=cumulative
 this makes sure that the following are retained:
 - the latest 3 files, regardless of timestamp
