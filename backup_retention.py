@@ -119,7 +119,7 @@ def parse_retention(retention_string): # example retention string: "keep-daily=5
             except ValueError as e:
                 print(f"Error in retention input \"{parts[1]}\" in \"{parts}\"")
                 sys.exit(1)
-        if parts[0] in ['years', 'half-years', 'quarters', 'months', 'fortnights', 'weeks', 'days', 'hours', 'last']:
+        if parts[0] in ['years', 'half-years', 'quarters', 'months', 'fortnights', 'weeks', 'days', 'hours', 'latest']:
             retention_dict[parts[0]] = count
         elif parts[0] == ("all"):
             retention_dict = {}
@@ -134,11 +134,71 @@ def main():
     parser.add_argument("directory", nargs="?", default=os.getcwd(), help="Directory to process. default=current. Will attempt to create directory if it doesn't exist")
     parser.add_argument("--action", choices=["list", "move", "delete"], default="list", help="Action to perform. default=list")
     parser.add_argument("--destination", help="Destination directory for move action")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose output (list moved/deleted files. For list action, list reason to keep each file)")
-    parser.add_argument("--retention", default="all", help="Retention mode. Specify the retention policy for file backups. The default value is 'all', which keeps all files. Other supported retention modes are 'last=N' (keep the last N files), 'hours=N' (keep the last file per hour for N hour), 'days=N' (keep the last file per day for N days), 'weeks', 'fortnights', 'monthls', 'quarters', 'half-years' and 'years' -- all of which can have =N added like in the first examples. If you for example have 10 files per day and specify 'days=2', then the latest file from the last two days will be kept. Multiple retention modes can be combined by separating them with spaces, e.g., 'last=3 days=7 months=6 years=5'. This will keep the last file of the year for 5 years, the last file of the month for 6 months, the last file of the day for 7 days and the last 3 files, regardless of date/time. Note that if there are no matching files in a specific month, for example, then that month will not be counted. For example if you specify 'months=6', and you have files in months 1-4 and 9-12', the file for moths 3,4,9,10,11,12 will be kept - a total of 6 months.")
     parser.add_argument("--format", default="{YYYY}{MM}{DD}T{hh}{mm}", help="File format. Specify the format for the file names or directory names to match. The default format is '{YYYY}{MM}{DD}T{hh}{mm}'. You can customize the format by using placeholders: {YYYY} for year, {MM} for month, {DD} for day, {hh} for hour, and {mm} for minute. You can use wildcards ? and *. For example, '{YYYY}-{MM}-{DD}' will match names such as '2023-05-20'. '?{YYYY}{MM}{DD}*' will match names like 'X20230520' or 'X20210101T0100'.")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose output (list moved/deleted files. For list action, list reason to keep each file)")
+    parser.add_argument("--retention", default="all", help="Retention mode. Specify the retention policy for backup files/directories. The default value is 'all', which keeps all files. Other supported retention modes are latest, hours, days, weeks, fortnights, months, quarters, half-years and years. Add =N after the mode to specify the number of files to be retained. Defaults to 1 if not specified. Multiple retention modes can be combined by separated by spaces.")
+    parser.add_argument("--help_retention", action="store_true", help="display more detailed help on the retention argument")
+    parser.add_argument("--method", default="progressive", choices=["progressive", "cumulative"], help="Progressive retention retains files based on specific time intervals, starting from the most recent and extending to older files. Cumulative retention accumulates retention criteria over time, gradually expanding the range of files to be retained based on increasing time intervals.")
+    parser.add_argument("--help_method", action="store_true", help="display more detailed help on the method argument")
 
     args = parser.parse_args()
+
+    quit_now = False
+    if args.help_retention:
+        print("""
+Retention mode
+--------------
+latest=N     - N is the number of consequtive file(s) with the latest timestamp that you want to retain
+hours=N      - N is the number of hours from which you want to retain the latest file.
+days=N       - N is the number of days from which you want to retain the latest file.
+weeks=N      - N is the number of weeks from which you want to retain the latest file.
+fortnights=N - N is the number of fortnights (14 days) from which you want to retain the latest file.
+months=N     - N is the number of months from which you want to retain the latest file.
+quarters=N   - N is the number of quarters (3 momths) from which you want to retain the latest file.
+half-years=N - N is the number of helf-years (6 months) from which you want to retain the latest file.
+years=N      - N is the number of years from which you want to retain the latest file.
+
+Leaving out the "=N" part is equal to "=1".
+Only files that match file format *exactly* will be processed, all other files in the same directory will be retained (not deleted). If you use the default format of "{YYYY}{MM}{DD}T{hh}{mm}", for example, the file "20230517T0900" will match and be processed to see if it should be retained or not, but "20230517T090000" (with seconds), "20230517T0900.ext" (extra characters) or "202302307T0900" (invalid date) will not match. Such files will be ignored, and will thus be retained.
+Any files with a timestamp in the future will also be ignored, and thus retained.
+
+Examples:
+'latest=7': keep the latest 7 files
+'hours=18': keep the last file per hour for 18 hours
+'years': keep the last file of the year (same as 'years=1')
+'last=3 days=7 months=6 years=5'. This will keep the last file of the year for 5 years, the last file of the month for 6 months, the last file of the day for 7 days and the last 3 files, regardless of date/time -- unless you specify comulative retension (see --help-method).
+Note that if there are no matching files in a specific time period - let's use month, for example, then that month will not be counted. For example if you specify 'months=6', and you have files in months 1-4 and 9-12', but none for months 5-8, the file for months 3,4,9,10,11,12 will be retained - a total of 6 months.""")
+        quit_now = True
+
+    if args.help_method:
+        print("""
+Examples of progressive and cumulative retention
+------------------------------------------------
+Progressive Retention (default)
+python backup_retention.py /home/me/my_backups --retention "latest=3 days=7 weeks=6 months=12 quarters=12 years=10" --verbose --action=list
+this results in the following being retained:
+- the latest 3 files, regardless of timestamp
+- the latest file for the first 7 days
+- the latest file for the first 6 weeks (the first week, all files will be retained becuase of days=7, then the next 5 weeks only the latest per week)
+- the latest file for the first 12 months (as the first 6 weeks are saved anyway, 10-11 additional files will be retained the first year)
+- the latest file for the first 12 quarters (after the first 12 months (4 quarters), an additonal 8 quarters will be retained)
+- the latest file for the first 10 years (the first 3 years are already covered by quarters=12. For the remaining 7 years, only one file per year is retained)
+- files older than 10 years, and those not covered by the above statements will be listed, moved or deleted, depending on your action.
+
+Cumulative Retention (add --method=cumulative to enable)
+python backup_retention.py /home/me/my_backups --retention "latest=3 days=7 weeks=6 months=12 quarters=8 years=5" --verbose --action=list --method=cumulative
+this results in the following being retained:
+- the latest 3 files, regardless of timestamp
+- the latest file for the first 7 days
+- the latest file for the first 6 weeks (starting after the first 7 days, the latest file in next 6 weeks will be retained)
+- the latest file for the first 12 months (starting after the first 6 weeks+7 days, the latest file in next 12 months will be retained)
+- the latest file for the first 8 quarters (starting after the first 12 months+6 weeks+7 days, the latest file in next 8 quarters (two years) will be retained)
+- the latest file for the first 10 years (starting after the first 8 quarters+12 months+6 weeks+7 days, the latest file in next 10 years will be retained)
+- files older than that, and those not covered by the above statements will be listed, moved or deleted, depending on your action.""")
+        quit_now = True
+
+    if quit_now:
+        sys.exit(0)
 
     if args.action == "move":
         if not args.destination:
@@ -220,7 +280,7 @@ def main():
         files_grouped_by_year.setdefault(year_key, []).append(file)
         
     time_units_and_files = [
-        ['last',        files_grouped_by_nothing,   "entry {i}/{j}"          ],
+        ['latest',      files_grouped_by_nothing,   "latest {i}/{j}"          ],
         ['hours',       files_grouped_by_hour,      "hour {i}/{j} ({t})"      ],
         ['days',        files_grouped_by_day,       "day {i}/{j} ({t})"       ],
         ['weeks',       files_grouped_by_week,      "week {i}/{j} ({t})"      ],
@@ -237,18 +297,30 @@ def main():
     # Create a list of only the grouped files for easy access (used to get next time unit's files)
     grouped_files_by_time_unit = {unit: files for unit, files, _ in time_units_and_files}
     
+    last_file_in_previous_group = None # if cumulative retention is used, the last file in the former group is stored here
     for time_unit, grouped_files, status_template in time_units_and_files:
-        if time_unit in retention:
-            retention_count = original_retention_count = retention[time_unit] # number of days/weeks/etc. to retain files
-            # print(time_unit, retention_count, len(grouped_files)) # debug
-            for group, files in grouped_files.items():
-                if retention_count < 1:
-                    break # no more files are to be retained for this group, so no need to continue processing
-                status_msg = status_template.format(i=original_retention_count-retention_count+1, j=original_retention_count, t=group)
-                file_flags[files[0]].append(status_msg) # append the status to the first file in the group (the one with the latest time)
-                retention_count -= 1
-                # print(f"appended status {status} to {file}") # debug
-                
+        if time_unit in retention: # if user has chosen to retain files based on this time unit
+            retention_count = original_retention_count = retention[time_unit]
+            for group, files in grouped_files.items(): # iterate through groups with files within that group
+                # examples of groups: "2017-W41" for week, "2023-10" for month, "20230517" for day, ...
+                if last_file_in_previous_group: # if we're using cumulative retention and the previous time unit is done
+                    # check if we've reached the group that the last file in the previous time unit was in
+                    if last_file_in_previous_group in files: 
+                        last_file_in_previous_group = None # reset this so we won't go into this code block on the next iteration
+                    # then just skip to next iteration if we haven't found the file, and if we just found it
+                    continue
+                current_file = files[0]
+
+                if retention_count > 0: # we still have files left in the given retention count, so we'll add it to the file_flags
+                    status_msg = status_template.format(i=original_retention_count-retention_count+1, j=original_retention_count, t=group)
+                    file_flags[current_file].append(status_msg)
+                    retention_count -= 1
+
+                if retention_count < 1: # no more files from this group to be added
+                    if args.method == "cumulative":
+                        last_file_in_previous_group = current_file
+                    break # no point continueing with further files in this group if we've already used all of retention_count
+
     if args.action=="list":
         list_files(file_flags, args.verbose)
     elif args.action=="delete":
