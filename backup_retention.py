@@ -212,7 +212,8 @@ def move_files(file_flags, destination, verbose):
             print(f"moving {file} to {destination}...") if verbose else None
             shutil.move(file, destination)
         else:
-            print(f"keeping  {file}...") if verbose else None
+            flags_str = ", ".join(flags)
+            print(f"keeping  {file} -- {flags_str}") if verbose else None
 
 
 def delete_files(file_flags, verbose):
@@ -249,7 +250,8 @@ def delete_files(file_flags, verbose):
             except OSError as e:
                 print(f"Error deleting file or directory '{file}': {e}")
         else:
-            print(f"keeping  {file}...") if verbose else None
+            flags_str = ", ".join(flags)
+            print(f"keeping  {file} -- {flags_str}") if verbose else None
 
 def parse_retention(retention_string):
     """
