@@ -8,11 +8,62 @@ import re
 import shutil
 
 def get_matching_files(directory, file_format):
+    """
+    Retrieve a list of files in the specified directory that match the given file format.
+
+    Args:
+        directory (str): The directory path where the files will be searched.
+        file_format (str): The file format pattern to match. Use "{YYYY}" for year,
+            "{MM}" for month, "{DD}" for day, "{hh}" for hour, and "{mm}" for minute.
+            Any of these placeholders will be replaced with "*" in the file pattern.
+            Literal characters as well as wildcards * and ? may of course also be added.
+
+    Returns:
+        list: A list of file paths that match the specified file format.
+
+    Example:
+        directory = "/path/to/files"
+        file_format = "data_{YYYY}{MM}{DD}.txt"
+        matching_files = get_matching_files(directory, file_format)
+        # Returns a list of files in the directory that match the format "data_YYYYMMDD.txt".
+
+    Note:
+        - The file format should follow the specified placeholders for year, month, day, hour, and minute.
+        - Any other parts of the file format will be treated as literal characters.
+        - The function uses the `glob` module to find files based on the generated file pattern.
+
+    """
     file_pattern = file_format.replace("{YYYY}", "*").replace("{MM}", "*").replace("{DD}", "*").replace("{hh}", "*").replace("{mm}", "*")
     files = glob(os.path.join(directory, file_pattern))
     return files
 
 def generate_regex_pattern(file_format):
+    """
+    Generates a regular expression pattern based on the given file format.
+
+    Args:
+        file_format (str): The file format string containing wildcards and placeholders.
+
+    Returns:
+        str: The generated regular expression pattern.
+
+    The function replaces specific characters and placeholders in the file format with
+    corresponding regular expression patterns. It converts "?" to a regex pattern matching
+    any single character, "*" to a regex pattern matching zero or more characters, and
+    "{YYYY}", "{MM}", "{DD}", "{hh}", "{mm}" to corresponding regex patterns for year,
+    month, day, hour, and minute respectively. The resulting pattern is anchored at the
+    start and end to match the entire file name.
+
+    Examples:
+        file_format = "file_*.txt"
+        regex_pattern = generate_regex_pattern(file_format)
+        # regex_pattern = r"^file_\w*\.txt$"
+        
+        file_format = '{YYYY}{MM}{DD}T{hh}{mm}'
+        regex_pattern = generate_regex_pattern(file_format)
+        # regex_pattern = '^(?P<YYYY>\\d{4})(?P<MM>\\d{2})(?P<DD>\\d{2})T(?P<hh>\\d{2})(?P<mm>\\d{2})$'
+
+    """
     regex_pattern = file_format
     # Replace ? with regex pattern matching any single character
     regex_pattern = regex_pattern.replace("?", r"\w")
@@ -29,6 +80,27 @@ def generate_regex_pattern(file_format):
     return regex_pattern
 
 def get_file_datetime(file_path, file_format):
+    """
+    Extracts the datetime from a file name based on the specified file format.
+
+    Args:
+        file_path (str): The path of the file.
+        file_format (str): The file format string containing placeholders for datetime elements.
+
+    Returns:
+        datetime or None: The datetime extracted from the file name, or None if extraction failed.
+
+    The function uses a regular expression pattern generated from the provided file format
+    to match and extract the datetime elements from the file name. It attempts to extract
+    the year, month, day, hour, and minute from the matched groups and creates a datetime object.
+    If any extraction or conversion to integers fails, it returns None.
+
+    Example:
+        file_path = "/path/to/file_20220523T0830.txt"
+        file_format = "file_{YYYY}{MM}{DD}T{hh}{mm}.txt"
+        file_datetime = get_file_datetime(file_path, file_format)
+        # file_datetime = datetime.datetime(2022, 5, 23, 8, 30)
+    """
     regex_pattern = generate_regex_pattern(file_format)
     filename = os.path.basename(file_path) # remove directories, if any
     match = re.search(regex_pattern, filename)
@@ -45,6 +117,32 @@ def get_file_datetime(file_path, file_format):
     return None
 
 def list_files(file_flags, verbose):
+    """
+    Prints files indicating which would be retained if a different action is chosen.
+
+    Args:
+        file_flags (dict): A dictionary containing file paths as keys and their corresponding retention flags as values.
+        verbose (bool): If True, provides detailed information for each file. If False, summarizes the number of files to be kept and deleted.
+
+    If no files are found matching the specified file format, a message is printed. Otherwise,
+    if 'verbose' is True, each file is listed with the reasons to keep it. Files with no reason to keep
+    can be deleted or moved using '--action=delete' or '--action=move'. If 'verbose' is False,
+    a summary is printed with the number of files to be kept and deleted.
+
+    Example:
+        file_flags = {
+            'file1.txt': ['Reason1', 'Reason2'],
+            'file2.txt': [],
+            'file3.txt': ['Reason1']
+        }
+        list_files(file_flags, True)
+        # Output:
+        # file1.txt - Reasons to keep: Reason1, Reason2
+        # file2.txt - No reason to keep
+        # file3.txt - Reasons to keep: Reason1
+        # Files with no reason to keep can be deleted or moved using --action=delete or --action=move, see --help
+
+    """
     if len(file_flags) == 0:
         print("No files matching the specified file format found. See --help if in doubt.")
     else:
@@ -73,6 +171,31 @@ def list_files(file_flags, verbose):
                 print(file) if not flags else None
 
 def move_files(file_flags, destination, verbose):
+    """
+    Moves files not to be retained to a different directory.
+
+    Args:
+        file_flags (dict): A dictionary containing file paths as keys and their corresponding retention flags as values.
+        destination (str): The destination directory where the files will be moved.
+        verbose (bool): If True, provides detailed information about each file move.
+
+    If the destination directory exists, files not to be retained are moved to that directory.
+    If the destination directory does not exist, it is created. If any errors occur during the move operation,
+    an error message is printed.
+
+    Example:
+        file_flags = {
+            'file1.txt': ['Reason1', 'Reason2'],
+            'file2.txt': [],
+            'file3.txt': ['Reason1']
+        }
+        destination = '/path/to/destination'
+        move_files(file_flags, destination, True)
+        # Output:
+        # moving file2.txt to /path/to/destination...
+        # Files not to be retained have been moved to the destination directory.
+
+    """
     if os.path.exists(destination):
         if not os.path.isdir(destination):
             print(f"Error: Destination '{destination}' is not a directory.")
@@ -93,6 +216,28 @@ def move_files(file_flags, destination, verbose):
 
 
 def delete_files(file_flags, verbose):
+    """
+    Deletes files not to be retained.
+
+    Args:
+        file_flags (dict): A dictionary containing file paths as keys and their corresponding retention flags as values.
+        verbose (bool): If True, provides detailed information about each file deletion.
+
+    Files not to be retained are deleted from the file system. If any errors occur during the deletion process,
+    an error message is printed.
+
+    Example:
+        file_flags = {
+            'file1.txt': ['Reason1', 'Reason2'],
+            'file2.txt': [],
+            'file3.txt': ['Reason1']
+        }
+        delete_files(file_flags, True)
+        # Output:
+        # deleting file2.txt...
+        # Files not to be retained have been deleted.
+
+    """
     for file, flags in sorted(file_flags.items()):
         if not flags:  # No flags present for the file
             print(f"deleting {file}...") if verbose else None
@@ -106,7 +251,27 @@ def delete_files(file_flags, verbose):
         else:
             print(f"keeping  {file}...") if verbose else None
 
-def parse_retention(retention_string): # example retention string: "keep-daily=5 keep-weekly keep-monthly=3"
+def parse_retention(retention_string):
+    """
+    Parses the retention string and returns a dictionary representing the retention configuration.
+
+    Args:
+        retention_string (str): A string specifying the retention configuration in the format "mode=count".
+            Modes can include 'years', 'half-years', 'quarters', 'months', 'fortnights', 'weeks', 'days', 'hours', 'latest'.
+            The count value represents the number of units to retain.
+
+    Returns:
+        dict: A dictionary representing the retention configuration, where keys are the modes and values are the corresponding counts.
+
+    If the retention string is invalid or contains errors, appropriate error messages are printed and the program exits.
+
+    Example:
+        retention_string = "days=5 weeks months=3"
+        retention_config = parse_retention(retention_string)
+        # Output:
+        # {'days': 5, 'weeks': 1, 'months': 3}
+
+    """
     modes = retention_string.replace(",", " ").split() # replace comma in case of comma separated input like "keep-daily,keep-weekly", then split on space
     retention_dict = {}
     for mode in modes:
@@ -127,7 +292,7 @@ def parse_retention(retention_string): # example retention string: "keep-daily=5
         else:
             print(f"Invalid retention format \"{mode}\"")
             sys.exit(1)
-    return retention_dict # example return value: {'days': 5, 'weeks': 1, 'months': 3}
+    return retention_dict
 
 def main():
     parser = argparse.ArgumentParser(description="Backup retention script")
