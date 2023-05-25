@@ -1,5 +1,7 @@
 import os
+import sys
 import argparse
+import math
 from datetime import datetime
 from glob import glob
 import re
@@ -101,68 +103,28 @@ def delete_files(file_flags, verbose):
         else:
             print(f"keeping  {file}...") if verbose else None
 
-def parse_retention(retention):
-    modes = retention.split()
+def parse_retention(retention_string): # example retention string: "keep-daily=5 keep-weekly keep-monthly=3"
+    modes = retention_string.replace(",", " ").split() # replace comma in case of comma separated input like "keep-daily,keep-weekly", then split on space
     retention_dict = {}
     for mode in modes:
-        if mode.startswith("keep-all"):
-            retention_dict = {}
-        elif mode.startswith("keep-last"):
-            count = int(mode.split("=")[-1])
-            retention_dict['last'] = count
-        elif mode.startswith("keep-yearly"):
-            count = int(mode.split("=")[-1])
-            retention_dict['years'] = count
-        elif mode.startswith("keep-monthly"):
-            count = int(mode.split("=")[-1])
-            retention_dict['months'] = count
-        elif mode.startswith("keep-weekly"):
-            count = int(mode.split("=")[-1])
-            retention_dict['weeks'] = count
-        elif mode.startswith("keep-daily"):
-            count = int(mode.split("=")[-1])
-            retention_dict['days'] = count
-        elif mode.startswith("keep-hourly"):
-            count = int(mode.split("=")[-1])
-            retention_dict['hours'] = count
+        parts = mode.replace(":", "=").split("=") # and make : same as =, then split on =
+        if len(parts) == 1:
+            count = 1  # Default count value
         else:
-            raise ValueError(f"Invalid retention format \"{mode}\"")
-    return retention_dict
-
-def get_next_time_unit(time_units, current_time_unit):
-    """
-    Get the next time unit from the given list, excluding the time 
-    unit 'last'.
-
-    Args:
-        time_units (list): List of time units.
-        current_time_unit (str): Current time unit.
-
-    Returns:
-        str or None: The next time unit if it exists, otherwise None.
-
-    """
-    index = time_units.index(current_time_unit)
-    if current_time_unit == 'last' or index == len(time_units) - 1:
-        return None
-    return time_units[index + 1]
-
-def get_group_number(grouped_files, file):
-    """
-    Get the group number based on the file's presence in the corresponding group.
-
-    Args:
-        grouped_files (dict): Dictionary containing grouped files for a single time unit.
-        file (str): The file to search for.
-
-    Returns:
-        int: The group number where the file is found, or 0 if not found.
-    """
-    if grouped_files:
-        for group_number, files in enumerate(grouped_files.values(), start=1):
-            if file in files:
-                return group_number
-    return 0
+            try:
+                count = int(parts[1])
+            except ValueError as e:
+                print(f"Error in retention input \"{parts[1]}\" in \"{parts}\"")
+                sys.exit(1)
+        if parts[0] in ['years', 'half-years', 'quarters', 'months', 'fortnights', 'weeks', 'days', 'hours', 'last']:
+            retention_dict[parts[0]] = count
+        elif parts[0] == ("all"):
+            retention_dict = {}
+            return retention_dict # override all other input
+        else:
+            print(f"Invalid retention format \"{mode}\"")
+            sys.exit(1)
+    return retention_dict # example return value: {'days': 5, 'weeks': 1, 'months': 3}
 
 def main():
     parser = argparse.ArgumentParser(description="Backup retention script")
@@ -170,8 +132,8 @@ def main():
     parser.add_argument("--action", choices=["list", "move", "delete"], default="list", help="Action to perform. default=list")
     parser.add_argument("--destination", help="Destination directory for move action")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output (list moved/deleted files. For list action, list reason to keep each file)")
-    parser.add_argument("--retention", default="keep-all", help="Retention mode. Specify the retention policy for file backups. The default value is 'keep-all', which keeps all files. Other supported retention modes include 'keep-last=N' (keep the last N files), 'keep-yearly=N' (keep N files per year), 'keep-monthly=N' (keep N files per month), 'keep-weekly=N' (keep N files per week), 'keep-daily=N' (keep N files per day), and 'keep-hourly=N' (keep N files per hour). If you have 10 files per day and specify 'keep-daily=2', then the last (newest) two files per day will be kept. Multiple retention modes can be combined by separating them with spaces, e.g., 'keep-last=3 keep-daily=1 keep-monthly=1 keep-yearly=1'. Each time unit will be kept until the start of the next time unit. For example, 1 daily file will be kept this month, but not next. If keep-weekly is specified, 1 daily file will only be kept this week. keep-last overrides everything, but after the specified number of files, the rest of the rules apply.")
-    parser.add_argument("--format", default="{YYYY}{MM}{DD}T{hh}{mm}", help="File format. Specify the format for the file names or directory names to match. The default format is '{YYYY}{MM}{DD}T{hh}{mm}'. You can customize the format by using placeholders: {YYYY} for year, {MM} for month, {DD} for day, {hh} for hour, and {mm} for minute. You can use wildcards ? and *. For example, '{YYYY}-{MM}-{DD}' represents a format like '2023-05-20'. '?{YYYY}{MM}{DD}*' represents a format like 'X20230520' or 'X20210101T0100'.")
+    parser.add_argument("--retention", default="all", help="Retention mode. Specify the retention policy for file backups. The default value is 'all', which keeps all files. Other supported retention modes are 'last=N' (keep the last N files), 'hours=N' (keep the last file per hour for N hour), 'days=N' (keep the last file per day for N days), 'weeks', 'fortnights', 'monthls', 'quarters', 'half-years' and 'years' -- all of which can have =N added like in the first examples. If you for example have 10 files per day and specify 'days=2', then the latest file from the last two days will be kept. Multiple retention modes can be combined by separating them with spaces, e.g., 'last=3 days=7 months=6 years=5'. This will keep the last file of the year for 5 years, the last file of the month for 6 months, the last file of the day for 7 days and the last 3 files, regardless of date/time. Note that if there are no matching files in a specific month, for example, then that month will not be counted. For example if you specify 'months=6', and you have files in months 1-4 and 9-12', the file for moths 3,4,9,10,11,12 will be kept - a total of 6 months.")
+    parser.add_argument("--format", default="{YYYY}{MM}{DD}T{hh}{mm}", help="File format. Specify the format for the file names or directory names to match. The default format is '{YYYY}{MM}{DD}T{hh}{mm}'. You can customize the format by using placeholders: {YYYY} for year, {MM} for month, {DD} for day, {hh} for hour, and {mm} for minute. You can use wildcards ? and *. For example, '{YYYY}-{MM}-{DD}' will match names such as '2023-05-20'. '?{YYYY}{MM}{DD}*' will match names like 'X20230520' or 'X20210101T0100'.")
 
     args = parser.parse_args()
 
@@ -180,7 +142,6 @@ def main():
             parser.error("Destination directory required for move action")
 
     retention = parse_retention(args.retention)
-    # get files matching the format
     files = get_matching_files(args.directory, args.format)
     file_datetime_map = {}
     file_flags = {}
@@ -201,18 +162,23 @@ def main():
         
     # print("file_datetime_map:", file_datetime_map) # debug
         
-    files_grouped_by_nothing = {} # simple list of datetime, week_number, file
-    files_grouped_by_hour    = {} # the key is Year, month, day, hour
-    files_grouped_by_day     = {} # the key is Year, month, day
-    files_grouped_by_week    = {} # the key is Year, week
-    files_grouped_by_month   = {} # the key is Year, month
-    files_grouped_by_year    = {} # the key is Year
+    files_grouped_by_nothing    = {} # simple list of datetime, week_number, file
+    files_grouped_by_hour       = {} # the key is Year, month, day, hour
+    files_grouped_by_day        = {} # the key is Year, month, day
+    files_grouped_by_week       = {} # the key is Year, week
+    files_grouped_by_fortnight  = {} # the key is Year, fortnight
+    files_grouped_by_month      = {} # the key is Year, month
+    files_grouped_by_quarter    = {} # the key is Year, quarter
+    files_grouped_by_half_year  = {} # the key is Year, half_year
+    files_grouped_by_year       = {} # the key is Year
 
     # loop through files sorted by latest file first, ensuring the latest file(s) in each group is selected for retention
     for file, file_datetime in sorted(file_datetime_map.items(), key=lambda x: x[1], reverse=True):
-        # populate files_grouped_by_nothing, but sorted by datetime, newest first, unlike file_datetime_map, which is random order
-        #files_grouped_by_nothing.append(file)
-        files_grouped_by_nothing.setdefault("last", []).append(file)
+        # group files, internally sorted by datetime, newest first, unlike file_datetime_map, which is random order
+
+        # populate files_grouped_by_nothing - each file has its own group
+        # if "last=3" is specified, the last 3 files will be in the first 3 groups
+        files_grouped_by_nothing.setdefault(file, []).append(file)
 
         # populate files_grouped_by_hour
         hour_key = file_datetime.strftime("%Y-%m-%d %H")
@@ -222,28 +188,47 @@ def main():
         day_key = file_datetime.strftime("%Y-%m-%d")
         files_grouped_by_day.setdefault(day_key, []).append(file)
 
-        # populate files_grouped_by_week
-        week_key = file_datetime.strftime("%Yw%W")
+        # populate files_grouped_by_week # ISO week, where the first week of the year is the week that contains at least four days of the new year.
+        week_key = file_datetime.strftime("%G-W%V")
         files_grouped_by_week.setdefault(week_key, []).append(file)
+        
+        # populate files_grouped_by_fortnight
+        iso_year, iso_week, _ = file_datetime.isocalendar()
+        fortnight = math.ceil(iso_week / 2)
+        fortnight_key = f"{iso_year}-F{fortnight}"
+        files_grouped_by_fortnight.setdefault(fortnight_key, []).append(file)
 
         # populate files_grouped_by_month
         month_key = file_datetime.strftime("%Y-%m")
         files_grouped_by_month.setdefault(month_key, []).append(file)
+
+        # populate files_grouped_by_quarter
+        quarter = math.ceil(file_datetime.month / 3)
+        quarter_key = file_datetime.strftime(f"%Y-Q{quarter}")
+        files_grouped_by_quarter.setdefault(quarter_key, []).append(file)
+
+        # populate files_grouped_by_half_year
+        half_year = math.ceil(file_datetime.month / 6)
+        half_year_key = file_datetime.strftime(f"%Y-H{half_year}")
+        files_grouped_by_half_year.setdefault(half_year_key, []).append(file)
 
         # populate files_grouped_by_year
         year_key = file_datetime.strftime("%Y")
         files_grouped_by_year.setdefault(year_key, []).append(file)
         
     time_units_and_files = [
-        ['last',   files_grouped_by_nothing, "last {i}"             ],
-        ['hours',  files_grouped_by_hour,    "last {i} in hour {t}" ],
-        ['days',   files_grouped_by_day,     "last {i} in day {t}"  ],
-        ['weeks',  files_grouped_by_week,    "last {i} in week {t}" ],
-        ['months', files_grouped_by_month,   "last {i} in month {t}"],
-        ['years',  files_grouped_by_year,    "last {i} in year {t}" ]]
+        ['last',        files_grouped_by_nothing,   "entry {i}/{j}"          ],
+        ['hours',       files_grouped_by_hour,      "hour {i}/{j} ({t})"      ],
+        ['days',        files_grouped_by_day,       "day {i}/{j} ({t})"       ],
+        ['weeks',       files_grouped_by_week,      "week {i}/{j} ({t})"      ],
+        ['fortnights',  files_grouped_by_week,      "fortnight {i}/{j} ({t})" ],
+        ['months',      files_grouped_by_month,     "month {i}/{j} ({t})"     ],
+        ['quarters',    files_grouped_by_quarter,   "quarter {i}/{j} ({t})"   ],
+        ['half_years',  files_grouped_by_half_year, "half-year {i}/{j} ({t})" ],
+        ['years',       files_grouped_by_year,      "year {i}/{j} ({t})"      ]]
 
     # Create a list of the time units above that are also present as keys in the retention dictionary
-    # example of contents of retention: {'last': 3, 'months': 2, 'years': 5, 'weeks': 1, 'days': 1}
+    # example of contents of retention: {'last': (3,1), 'months': (2,1), 'years': (5,1), 'weeks': (1,2), 'days': (1,3)}
     time_units = [time_unit for time_unit, _, _ in time_units_and_files if time_unit in retention]
     
     # Create a list of only the grouped files for easy access (used to get next time unit's files)
@@ -251,37 +236,16 @@ def main():
     
     for time_unit, grouped_files, status_template in time_units_and_files:
         if time_unit in retention:
-            retention_count = retention[time_unit] # number of files to retain
-
-            next_time_unit = get_next_time_unit(time_units, time_unit)
-            # next_time_unit is used to find out when to stop applying the keep flag. For example:
-            # retention={'last': 3, 'months': 2, 'years': 5, 'weeks': 1, 'days': 1}, which makes:
-            # time_unit=['last', 'days', 'weeks', 'months', 'years']
-            # time_unit="days"
-            # next_time_unit will be "weeks"
-            # it will then keep the last file for each day until next week, then the weekly rule will apply until next month, etc.
-            # If time_unit is "last" or the last entry (here: "years") it will return None.
-            
-            # print(time_unit, retention_count, next_time_unit, len(grouped_files)) # debug
-            
+            retention_count = original_retention_count = retention[time_unit] # number of days/weeks/etc. to retain files
+            # print(time_unit, retention_count, len(grouped_files)) # debug
             for group, files in grouped_files.items():
-                status = status_template.format(i=retention_count, t=group)
-
-                #print(f"Number of groups in {time_unit}: {len(grouped_files)} / files in group: {len(files)} / retention_count: {retention_count}, status: {status}") # debug
-                for file_number_in_group in range(min(retention_count, len(files))):
-                    file = files[file_number_in_group]
-                    # find out which group number in the next time unit this file belongs in
-                    # if it's the first, then apply the flag, otherwise do nothing.
-                    # This ensures that you only keep the files that match for month (for exampe, the last file)
-                    # for one year (if year is specified, otherwise forever). 
-                    # After that, when the file is in group 2 for the next next time unit, rules for that time unit will apply
-                    # get_group_number returns 0 if there's no next time unit
-                    group_number_for_next_time_unit = get_group_number(grouped_files_by_time_unit.get(next_time_unit), file)
-                    # print(file, group_number_for_next_time_unit) # debug
-                    if group_number_for_next_time_unit <= 1:
-                        file_flags[file].append(status)
-                        #print(f"appended status {status}") # debug
-
+                if retention_count < 1:
+                    break # no more files are to be retained for this group, so no need to continue processing
+                status_msg = status_template.format(i=original_retention_count-retention_count+1, j=original_retention_count, t=group)
+                file_flags[files[0]].append(status_msg) # append the status to the first file in the group (the one with the latest time)
+                retention_count -= 1
+                # print(f"appended status {status} to {file}") # debug
+                
     if args.action=="list":
         list_files(file_flags, args.verbose)
     elif args.action=="delete":
