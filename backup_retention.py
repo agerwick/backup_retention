@@ -372,6 +372,19 @@ this results in the following being retained:
             parser.error("Destination directory required for move action")
 
     retention = parse_retention(args.retention)
+
+    if args.verbose:
+        print("Backup retention arguments:")
+        print(f"  directory: {args.directory}")
+        print(f"  action: {args.action}")
+        print(f"  destination: {args.destination}") if args.destination else None
+        print(f"  format: {args.format}")
+        print("  retention:")
+        for mode, quantity in retention.items():
+            print(f"    - {mode}: {quantity}")
+        print(f"  method: {args.method}")
+        print()
+
     files = get_matching_files(args.directory, args.format)
     file_datetime_map = {}
     file_flags = {}
