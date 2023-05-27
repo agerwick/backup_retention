@@ -79,6 +79,9 @@ def generate_regex_pattern(file_format):
     regex_pattern = r"^" + regex_pattern + r"$"
     return regex_pattern
 
+def generate_status_msg(status_template, original_count, current_count, group):
+    return status_template.format(i=original_count - current_count + 1, j=original_count, t=group)
+
 def get_file_datetime(file_path, file_format):
     """
     Extracts the datetime from a file name based on the specified file format.
@@ -286,9 +289,14 @@ def parse_retention(retention_string):
             except ValueError as e:
                 print(f"Error in retention input \"{parts[1]}\" in \"{parts}\"")
                 sys.exit(1)
-        if parts[0] in ['years', 'half-years', 'quarters', 'months', 'fortnights', 'weeks', 'days', 'hours', 'latest']:
-            retention_dict[parts[0]] = count
-        elif parts[0] == ("all"):
+        time_unit = parts[0]
+        print(time_unit)
+        if time_unit in ['years', 'half-years', 'quarters', 'months', 'fortnights', 'weeks', 'days', 'hours', 'latest', 'earliest', 'newest', 'oldest']:
+            # replace synonyms
+            time_unit = time_unit.replace('oldest', 'earliest')
+            time_unit = time_unit.replace('newest', 'latest')
+            retention_dict[time_unit] = count
+        elif time_unit == ("all"):
             retention_dict = {'all': '*'}
             return retention_dict # override all other input
         else:
@@ -318,6 +326,9 @@ def main():
 Retention mode
 --------------
 latest=N     - N is the number of consequtive file(s) with the latest timestamp that you want to retain
+newest=N     - synonym of latest
+earliest=N   - N is the number of consequtive file(s) with the earliest timestamp that you want to retain
+oldest=N     - synonym of earliest
 hours=N      - N is the number of hours from which you want to retain the latest file.
 days=N       - N is the number of days from which you want to retain the latest file.
 weeks=N      - N is the number of weeks from which you want to retain the latest file.
@@ -422,7 +433,7 @@ this results in the following being retained:
         # group files, internally sorted by datetime, newest first, unlike file_datetime_map, which is random order
 
         # populate files_grouped_by_nothing - each file has its own group
-        # if "last=3" is specified, the last 3 files will be in the first 3 groups
+        # if "latest=3" is specified, the latest 3 files will be in the first 3 groups
         files_grouped_by_nothing.setdefault(file, []).append(file)
 
         # populate files_grouped_by_hour
@@ -481,6 +492,11 @@ this results in the following being retained:
     
     last_file_in_previous_group = None # if cumulative retention is used, the last file in the former group is stored here
     last_group = None
+    
+    # iterate through all time units - except earliest - (as that will be progressive, even in when using the cumulative method)
+    # the reason for that is that it starts from the other end (earliest first), and adding it early in time_units_and_files would cause 
+    # last_file_in_previous_group to be set to the very last files, resulting in no other groups being processed
+    # adding it to the end would result in it never being applied if one of the other groups run out of files.
     for time_unit, grouped_files, status_template in time_units_and_files:
         if time_unit in retention: # if user has chosen to retain files based on this time unit
             retention_count = original_retention_count = retention[time_unit]
@@ -499,7 +515,7 @@ this results in the following being retained:
                 current_file = files[0]
 
                 if retention_count > 0: # we still have files left in the given retention count, so we'll add it to the file_flags
-                    status_msg = status_template.format(i=original_retention_count-retention_count+1, j=original_retention_count, t=group)
+                    status_msg = generate_status_msg(status_template, original_retention_count, retention_count, group)
                     file_flags[current_file].append(status_msg)
                     retention_count -= 1
             
@@ -511,6 +527,21 @@ this results in the following being retained:
             if args.method == "cumulative" and not group_has_been_iterated_through_at_least_once: 
                 break # if you run out of files in, say, months, then there's no point processing any subsequent group (like year)
                 # this is important, otherwise the next group will get last_file_in_previous_group = None which means it'll start iterating from the first file
+
+    # flag files using the "earliest" time unit:
+    time_unit="earliest"
+    grouped_files=files_grouped_by_nothing
+    status_template="earliest {i}/{j}"
+    if time_unit in retention: # if user has chosen to retain files based on this time unit
+        retention_count = original_retention_count = retention[time_unit]
+        for group, files in list(grouped_files.items())[::-1]: # iterate through groups (=files for this group) in reverse order
+            current_file = files[0]
+            if retention_count > 0: # we still have files left in the given retention count, so we'll add it to the file_flags
+                status_msg = generate_status_msg(status_template, original_retention_count, retention_count, group)
+                file_flags[current_file].append(status_msg)
+                retention_count -= 1
+            if retention_count < 1: # no more files from this group to be added
+                break # no point continuing with further groups in this time_unit if we've already used all of retention_count
 
     if args.action=="list":
         list_files(file_flags, args.verbose)
