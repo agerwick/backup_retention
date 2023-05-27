@@ -289,11 +289,13 @@ def parse_retention(retention_string):
         if parts[0] in ['years', 'half-years', 'quarters', 'months', 'fortnights', 'weeks', 'days', 'hours', 'latest']:
             retention_dict[parts[0]] = count
         elif parts[0] == ("all"):
-            retention_dict = {}
+            retention_dict = {'all': '*'}
             return retention_dict # override all other input
         else:
             print(f"Invalid retention format \"{mode}\"")
             sys.exit(1)
+    if len(modes) == 0:
+        retention_dict = {'all', '*'}
     return retention_dict
 
 def main():
@@ -390,7 +392,7 @@ this results in the following being retained:
     file_flags = {}
 
     for file in files:
-        if len(retention) == 0:
+        if "all" in retention or len(retention) == 0: # len(retention) == 0 should never occur, but better safe than sorry...
             file_flags[file] = ["command line argument set to retain all files"]
         else:
             file_datetime = get_file_datetime(file, args.format)
