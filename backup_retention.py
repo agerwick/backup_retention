@@ -209,7 +209,7 @@ def move_files(file_flags, destination, verbose):
 
     for file, flags in sorted(file_flags.items()):
         if not flags:  # No flags present for the file
-            print(f"moving {file} to {destination}...") if verbose else None
+            print(f"moving {file} to {destination}...", flush=True) if verbose else None
             shutil.move(file, destination)
         else:
             flags_str = ", ".join(flags)
@@ -241,7 +241,7 @@ def delete_files(file_flags, verbose):
     """
     for file, flags in sorted(file_flags.items()):
         if not flags:  # No flags present for the file
-            print(f"deleting {file}...") if verbose else None
+            print(f"deleting {file}...", flush=True) if verbose else None
             try:
                 if os.path.isfile(file):
                     os.remove(file)
@@ -383,7 +383,7 @@ this results in the following being retained:
         for mode, quantity in retention.items():
             print(f"    - {mode}: {quantity}")
         print(f"  method: {args.method}")
-        print()
+        print("", flush=True)
 
     files = get_matching_files(args.directory, args.format)
     file_datetime_map = {}
