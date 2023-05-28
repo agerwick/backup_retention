@@ -173,7 +173,7 @@ def list_files(file_flags, verbose):
             for file, flags in file_flags_items:
                 print(file) if not flags else None
 
-def move_files(file_flags, destination, verbose):
+def move_files(file_flags, destination, verbose, test_mode=False):
     """
     Moves files not to be retained to a different directory.
 
@@ -201,14 +201,22 @@ def move_files(file_flags, destination, verbose):
     """
     if os.path.exists(destination):
         if not os.path.isdir(destination):
-            print(f"Error: Destination '{destination}' is not a directory.")
-            sys.exit(1)
+            msg = f"Error: Destination '{destination}' is not a directory."
+            if test_mode:
+                return msg
+            else:
+                print(msg)
+                sys.exit(1)
     else:
         try:
             os.makedirs(destination)
         except OSError as e:
-            print(f"Error creating destination directory: {e}")
-            sys.exit(1)
+            msg = f"Error creating destination directory: {e}"
+            if test_mode:
+                return msg
+            else:
+                print(msg)
+                sys.exit(1)
 
     for file, flags in sorted(file_flags.items()):
         if not flags:  # No flags present for the file
@@ -256,7 +264,7 @@ def delete_files(file_flags, verbose):
             flags_str = ", ".join(flags)
             print(f"keeping  {file} -- {flags_str}") if verbose else None
 
-def parse_retention(retention_string):
+def parse_retention(retention_string, test_mode=False):
     """
     Parses the retention string and returns a dictionary representing the retention configuration.
 
@@ -287,10 +295,13 @@ def parse_retention(retention_string):
             try:
                 count = int(parts[1])
             except ValueError as e:
-                print(f"Error in retention input \"{parts[1]}\" in \"{parts}\"")
-                sys.exit(1)
+                msg=f"Error in retention input \"{parts[1]}\" in \"{parts}\""
+                if test_mode:
+                    return msg
+                else:
+                    print(msg)
+                    sys.exit(1)
         time_unit = parts[0]
-        print(time_unit)
         if time_unit in ['years', 'half-years', 'quarters', 'months', 'fortnights', 'weeks', 'days', 'hours', 'latest', 'earliest', 'newest', 'oldest']:
             # replace synonyms
             time_unit = time_unit.replace('oldest', 'earliest')
@@ -300,8 +311,12 @@ def parse_retention(retention_string):
             retention_dict = {'all': '*'}
             return retention_dict # override all other input
         else:
-            print(f"Invalid retention format \"{mode}\"")
-            sys.exit(1)
+            msg=f"Invalid retention format \"{mode}\""
+            if test_mode:
+                return msg
+            else:
+                print(msg)
+                sys.exit(1)
     if len(modes) == 0:
         retention_dict = {'all', '*'}
     return retention_dict
