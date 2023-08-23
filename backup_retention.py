@@ -381,7 +381,7 @@ this results in the following being retained:
 - files older than 10 years, and those not covered by the above statements will be listed, moved or deleted, depending on your action.
 
 Cumulative Retention (add --method=cumulative to enable)
-python backup_retention.py /home/me/my_backups --retention "latest=3 days=7 weeks=6 months=12 quarters=8 years=5" --verbose --action=list --method=cumulative
+python backup_retention.py /home/me/my_backups --retention "latest=3 days=7 weeks=6 months=12 quarters=8 years=10" --verbose --action=list --method=cumulative
 this results in the following being retained:
 - the latest 3 files, regardless of timestamp
 - the latest file for the first 7 days
