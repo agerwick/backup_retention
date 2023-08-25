@@ -33,7 +33,10 @@ def get_matching_files(directory, file_format):
         - The function uses the `glob` module to find files based on the generated file pattern.
 
     """
-    file_pattern = file_format.replace("{YYYY}", "*").replace("{MM}", "*").replace("{DD}", "*").replace("{hh}", "*").replace("{mm}", "*")
+    file_pattern = file_format
+    for timeUnit in ["{YYYY}", "{MM}", "{DD}", "{hh}", "{mm}"]:
+        if timeUnit in file_format:
+            file_pattern = file_pattern.replace(timeUnit, "*")
     files = glob(os.path.join(directory, file_pattern))
     return files
 
@@ -416,6 +419,13 @@ this results in the following being retained:
     files = get_matching_files(args.directory, args.format)
     file_datetime_map = {}
     file_flags = {}
+
+    if files:
+        print(f"Found {len(files)} files matching the specified file format")
+        print("", flush=True)
+    else:
+        print("No files matching the specified file format found in the specified directory. See --help if in doubt.")
+        sys.exit(0)
 
     for file in files:
         if "all" in retention or len(retention) == 0: # len(retention) == 0 should never occur, but better safe than sorry...
