@@ -115,8 +115,14 @@ def get_file_datetime(file_path, file_format):
             year = int(match.group('YYYY'))
             month = int(match.group('MM'))
             day = int(match.group('DD'))
-            hour = int(match.group('hh'))
-            minute = int(match.group('mm'))
+            if 'hh' in match.groupdict():
+                hour = int(match.group('hh'))
+            else:
+                hour = 0
+            if 'mm' in match.groupdict():
+                minute = int(match.group('mm'))
+            else:
+                minute = 0
             return datetime(year, month, day, hour, minute)
         except ValueError:
             return None
@@ -329,7 +335,7 @@ def main():
     parser.add_argument("directory", nargs="?", default=os.getcwd(), help="Directory to process. default=current. Will attempt to create directory if it doesn't exist")
     parser.add_argument("--action", choices=["list", "move", "delete"], default="list", help="Action to perform. default=list")
     parser.add_argument("--destination", help="Destination directory for move action")
-    parser.add_argument("--format", default="{YYYY}{MM}{DD}T{hh}{mm}", help="File format. Specify the format for the file names or directory names to match. The default format is '{YYYY}{MM}{DD}T{hh}{mm}'. You can customize the format by using placeholders: {YYYY} for year, {MM} for month, {DD} for day, {hh} for hour, and {mm} for minute. You can use wildcards ? and *. For example, '{YYYY}-{MM}-{DD}' will match names such as '2023-05-20'. '?{YYYY}{MM}{DD}*' will match names like 'X20230520' or 'X20210101T0100'.")
+    parser.add_argument("--format", default="{YYYY}{MM}{DD}T{hh}{mm}", help="File format. Specify the format for the file names or directory names to match. The default format is '{YYYY}{MM}{DD}T{hh}{mm}'. You can customize the format by using placeholders: {YYYY} for year, {MM} for month, {DD} for day, {hh} for hour, and {mm} for minute, the latter two are optional. You can use wildcards ? and *. For example, '{YYYY}-{MM}-{DD}' will match names such as '2023-05-20'. '?{YYYY}{MM}{DD}*' will match names like 'X20230520' or 'Y20210101T0100'.")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output (list moved/deleted files. For list action, list reason to keep each file)")
     parser.add_argument("--retention", default="all", help="Retention mode. Specify the retention policy for backup files/directories. The default value is 'all', which keeps all files. Other supported retention modes are earliest, latest, hours, days, weeks, fortnights, months, quarters, half-years and years. Add =N after the mode to specify the number of files to be retained. N defaults to 1 if not specified. Multiple retention modes can be combined by separated by spaces.")
     parser.add_argument("--help_retention", action="store_true", help="display more detailed help on the retention argument")
@@ -357,15 +363,15 @@ half-years=N - N is the number of helf-years (6 months) from which you want to r
 years=N      - N is the number of years from which you want to retain the latest file.
 
 Leaving out the "=N" part is equal to "=1".
-Only files that match file format *exactly* will be processed, all other files in the same directory will be retained (not deleted). If you use the default format of "{YYYY}{MM}{DD}T{hh}{mm}", for example, the file "20230517T0900" will match and be processed to see if it should be retained or not, but "20230517T090000" (with seconds), "20230517T0900.ext" (extra characters) or "202302307T0900" (invalid date) will not match. Such files will be ignored, and will thus be retained.
+Only files that match file format *exactly* will be processed, all other files in the same directory will be retained (not deleted). If you use the default format of "{YYYY}{MM}{DD}T{hh}{mm}", for example, the file "20230517T0901" will match and be processed to see if it should be retained or not, but "20230517T090100" (with seconds), "20230517T0900.ext" (extra characters) or "202302307T0900" (invalid date) will not match. Such files will be ignored, and will thus be retained.
 Any files with a timestamp in the future will also be ignored, and thus retained.
 
 Examples:
 'latest=7': keep the latest 7 files
 'hours=18': keep the last file per hour for 18 hours
 'years': keep the last file of the year (same as 'years=1')
-'last=3 days=7 months=6 years=5'. This will keep the last file of the year for 5 years, the last file of the month for 6 months, the last file of the day for 7 days and the last 3 files, regardless of date/time -- unless you specify comulative retension (see --help-method).
-Note that if there are no matching files in a specific time period - let's use month, for example, then that month will not be counted. For example if you specify 'months=6', and you have files in months 1-4 and 9-12', but none for months 5-8, the file for months 3,4,9,10,11,12 will be retained - a total of 6 months.""")
+'latest=3 days=7 months=6 years=5'. This will keep the last file of the year for 5 years, the last file of the month for 6 months, the last file of the day for 7 days and the last 3 files, regardless of date/time -- unless you specify comulative retension (see --help-method).
+Note that if there are no matching files in a specific time period - let's use month, for example, then that month will not be counted. For example, given the the current month is December (month 12), if you specify 'months=6', and you have files in months 1-4 and 9-12', but none for months 5-8, the file for months 3,4,9,10,11,12 will be retained - a total of 6 months counting backwards from 12.""")
         quit_now = True
 
     if args.help_method:
@@ -387,12 +393,18 @@ Cumulative Retention (add --method=cumulative to enable)
 python backup_retention.py /home/me/my_backups --retention "latest=3 days=7 weeks=6 months=12 quarters=8 years=10" --verbose --action=list --method=cumulative
 this results in the following being retained:
 - the latest 3 files, regardless of timestamp
-- the latest file for the first 7 days
-- the latest file for the first 6 weeks (starting after the first 7 days, the latest file in next 6 weeks will be retained)
-- the latest file for the first 12 months (starting after the first 6 weeks+7 days, the latest file in next 12 months will be retained)
-- the latest file for the first 8 quarters (starting after the first 12 months+6 weeks+7 days, the latest file in next 8 quarters (two years) will be retained)
-- the latest file for the first 10 years (starting after the first 8 quarters+12 months+6 weeks+7 days, the latest file in next 10 years will be retained)
-- files older than that, and those not covered by the above statements will be listed, moved or deleted, depending on your action.""")
+- the latest file for the first 7 days (starting after the first 3 files)
+- the latest file for the first 6 weeks (starting after the first 3 files and the first 7 days after that, the latest file in next 6 weeks will be retained)
+- the latest file for the first 12 months (starting after the first 6 weeks+7 days+3 files, the latest file in next 12 months will be retained)
+- the latest file for the first 8 quarters (starting after the first 12 months+6 weeks+7 days+3 files, the latest file in next 8 quarters (two years) will be retained)
+- the latest file for the first 10 years (starting after the first 8 quarters+12 months+6 weeks+7 days+3 files, the latest file in next 10 years will be retained)
+- files older than that, and those not covered by the above statements will be listed, moved or deleted, depending on your action.
+              
+Note that all files not matching the file_format will be retained, regardless of date/time. If you use the default format of "{YYYY}{MM}{DD}T{hh}{mm}", for example, the file "20230517T0901" will match and be processed to see if it should be retained or not, but "20230517T090100" (with seconds), "20230517T0900.ext" (extra characters) or "202302307T0900" (invalid date) will not match. Such files will be ignored, and will thus be retained.
+Any files with a timestamp in the future will also be ignored, and thus retained.
+              
+In general, all else being equal, Cumulative retention will keep files for longer than Progressive retention, and it will also keep more of the latest files.
+Progressive retention will apply only one reason to keep a file for each file, while Cumilative retention may apply several reasons to keep a file (for example a file could be both the latest file and the latest file that day, week, month and year), thus it will "use up" the retention criteria faster than Progressive retention.""")
         quit_now = True
 
     if quit_now:
@@ -416,16 +428,24 @@ this results in the following being retained:
         print(f"  method: {args.method}")
         print("", flush=True)
 
+    # exit it file pattern doesn't contain at least year, month, day and hour
+    if not "{YYYY}" in args.format \
+    or not "{MM}" in args.format \
+    or not "{DD}" in args.format :
+        print("Error: File format must contain at least {YYYY}, {MM} and {DD}")
+        sys.exit(1)
+
     files = get_matching_files(args.directory, args.format)
     file_datetime_map = {}
     file_flags = {}
 
+    # exit if no files are found
     if files:
         print(f"Found {len(files)} files matching the specified file format")
         print("", flush=True)
     else:
-        print("No files matching the specified file format found in the specified directory. See --help if in doubt.")
-        sys.exit(0)
+        print("Error: No files matching the specified file format found in the specified directory. See --help if in doubt.")
+        sys.exit(1)
 
     for file in files:
         if "all" in retention or len(retention) == 0: # len(retention) == 0 should never occur, but better safe than sorry...
