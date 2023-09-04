@@ -339,7 +339,7 @@ def main():
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output (list moved/deleted files. For list action, list reason to keep each file)")
     parser.add_argument("--retention", default="all", help="Retention mode. Specify the retention policy for backup files/directories. The default value is 'all', which keeps all files. Other supported retention modes are earliest, latest, hours, days, weeks, fortnights, months, quarters, half-years and years. Add =N after the mode to specify the number of files to be retained. N defaults to 1 if not specified. Multiple retention modes can be combined by separated by spaces.")
     parser.add_argument("--help_retention", action="store_true", help="display more detailed help on the retention argument")
-    parser.add_argument("--method", default="progressive", choices=["progressive", "cumulative"], help="Progressive retention retains files based on specific time intervals, starting from the most recent and extending to older files. Cumulative retention accumulates retention criteria over time, gradually expanding the range of files to be retained based on increasing time intervals.")
+    parser.add_argument("--method", default="cumulative", choices=["progressive", "cumulative"], help="Progressive retention retains files based on specific time intervals, starting from the most recent and extending to older files. Cumulative retention accumulates retention criteria over time, gradually expanding the range of files to be retained based on increasing time intervals. See --help-method for more details. Default=cumulative")
     parser.add_argument("--help_method", action="store_true", help="display more detailed help on the method argument")
 
     args = parser.parse_args()
@@ -404,7 +404,7 @@ Note that all files not matching the file_format will be retained, regardless of
 Any files with a timestamp in the future will also be ignored, and thus retained.
               
 In general, all else being equal, Cumulative retention will keep files for longer than Progressive retention, and it will also keep more of the latest files.
-Progressive retention will apply only one reason to keep a file for each file, while Cumilative retention may apply several reasons to keep a file (for example a file could be both the latest file and the latest file that day, week, month and year), thus it will "use up" the retention criteria faster than Progressive retention.""")
+Progressive retention will apply only one reason to keep a file for each file, while Cumulative retention may apply several reasons to the same file (for example a file could be both the latest file and the latest file that day, week, month and year), thus it will "use up" the retention criteria faster than Progressive retention.""")
         quit_now = True
 
     if quit_now:
@@ -489,14 +489,16 @@ Progressive retention will apply only one reason to keep a file for each file, w
         day_key = file_datetime.strftime("%Y-%m-%d")
         files_grouped_by_day.setdefault(day_key, []).append(file)
 
-        # populate files_grouped_by_week # ISO week, where the first week of the year is the week that contains at least four days of the new year.
+        # populate files_grouped_by_week 
+        # use ISO week, where the first week of the year is the week that contains 
+        # at least four days of the new year.
         week_key = file_datetime.strftime("%G-W%V")
         files_grouped_by_week.setdefault(week_key, []).append(file)
         
         # populate files_grouped_by_fortnight
         iso_year, iso_week, _ = file_datetime.isocalendar()
         fortnight = math.ceil(iso_week / 2)
-        fortnight_key = f"{iso_year}-F{fortnight}"
+        fortnight_key = f"{iso_year}-F{str(fortnight).zfill(2)}"
         files_grouped_by_fortnight.setdefault(fortnight_key, []).append(file)
 
         # populate files_grouped_by_month
