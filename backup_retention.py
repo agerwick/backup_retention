@@ -78,8 +78,10 @@ def generate_regex_pattern(file_format):
     regex_pattern = regex_pattern.replace("{DD}", r"(?P<DD>\d{2})")
     regex_pattern = regex_pattern.replace("{hh}", r"(?P<hh>\d{2})")
     regex_pattern = regex_pattern.replace("{mm}", r"(?P<mm>\d{2})")
-    # Add start and end anchors to match the entire file name
-    regex_pattern = r"^" + regex_pattern + r"$"
+    # Add end anchor to match the entire file/path name after the capture group
+    # anything before the capture group is ignored, so any path name given will match
+    # for example, given the file format "{YYYY}{MM}{DD}T{hh}{mm}", the file name "../subdir/20220523T0830.txt" will match
+    regex_pattern = regex_pattern + r"$"
     return regex_pattern
 
 def generate_status_msg(status_template, original_count, current_count, group):
@@ -101,30 +103,39 @@ def get_file_datetime(file_path, file_format):
     the year, month, day, hour, and minute from the matched groups and creates a datetime object.
     If any extraction or conversion to integers fails, it returns None.
 
-    Example:
+    Example 1:
         file_path = "/path/to/file_20220523T0830.txt"
         file_format = "file_{YYYY}{MM}{DD}T{hh}{mm}.txt"
         file_datetime = get_file_datetime(file_path, file_format)
         # file_datetime = datetime.datetime(2022, 5, 23, 8, 30)
+
+    Example 2:
+        file_path = "/path/to/dir_20230905T1530/subdir/somefile.txt"
+        file_format = "dir_{YYYY}{MM}{DD}T{hh}{mm}/subdir/somefile.txt"
+        file_datetime = get_file_datetime(file_path, file_format)
+        # file_datetime = datetime.datetime(2023, 9, 5, 15, 30)
     """
     regex_pattern = generate_regex_pattern(file_format)
-    filename = os.path.basename(file_path) # remove directories, if any
-    match = re.search(regex_pattern, filename)
+    match = re.search(regex_pattern, file_path)
     if match:
         try:
-            year = int(match.group('YYYY'))
-            month = int(match.group('MM'))
-            day = int(match.group('DD'))
-            if 'hh' in match.groupdict():
-                hour = int(match.group('hh'))
-            else:
-                hour = 0
-            if 'mm' in match.groupdict():
-                minute = int(match.group('mm'))
-            else:
-                minute = 0
-            return datetime(year, month, day, hour, minute)
-        except ValueError:
+            # set which components to extract from the match
+            # key:   the name of the component used in the datetime constructor (year, ...)
+            # value: the name of the group in the regex (from the --format arg) (YYYY, ...)
+            # the name of the component must be compatible with the datetime constructor
+            datetime_components = {'year': 'YYYY', 'month': 'MM', 'day': 'DD', 'hour': 'hh', 'minute': 'mm'}
+            dt = {component_name: int(match.group(component_value)) for component_name, component_value in datetime_components.items() if component_value in match.groupdict()}
+            # if the match contains YYYY, MM, DD, hh, mm, then dt will be something like this:
+            #   {'year': '2023', 'month': '09', 'day': '05', 'hour': '21', 'minute': '45'}
+            # if the match contains YYYY, MM, DD, then dt will be something like this:
+            #   {'year': '2023', 'month': '09', 'day': '05'}
+            # if a component is not present in the match, it will not be extracted
+
+            # construct a datetime object from the components and return it
+            return datetime(**dt)
+            # if a date or datetime cannot be constructed because it lacks components (for example only year and month is provided and no day), it will fail with TypeError and the function will return None
+            # if any value is out of range, it will fail with ValueError and the function will return None (for example, {'month': 13})
+        except (ValueError, TypeError):
             return None
     return None
 
@@ -335,7 +346,8 @@ def main():
     parser.add_argument("directory", nargs="?", default=os.getcwd(), help="Directory to process. default=current. Will attempt to create directory if it doesn't exist")
     parser.add_argument("--action", choices=["list", "move", "delete"], default="list", help="Action to perform. default=list")
     parser.add_argument("--destination", help="Destination directory for move action")
-    parser.add_argument("--format", default="{YYYY}{MM}{DD}T{hh}{mm}", help="File format. Specify the format for the file names or directory names to match. The default format is '{YYYY}{MM}{DD}T{hh}{mm}'. You can customize the format by using placeholders: {YYYY} for year, {MM} for month, {DD} for day, {hh} for hour, and {mm} for minute, the latter two are optional. You can use wildcards ? and *. For example, '{YYYY}-{MM}-{DD}' will match names such as '2023-05-20'. '?{YYYY}{MM}{DD}*' will match names like 'X20230520' or 'Y20210101T0100'.")
+    parser.add_argument("--format", default="{YYYY}{MM}{DD}T{hh}{mm}", help="File format. Specify the format for the file names or directory names to match. The default format is '{YYYY}{MM}{DD}T{hh}{mm}'. You can customize the format by using placeholders: {YYYY} for year, {MM} for month, {DD} for day, {hh} for hour, and {mm} for minute, the latter two are optional. You can use wildcards ? and *. Literal characters may also be added. See --help-format for more details.")
+    parser.add_argument("--help_format", action="store_true", help="display more detailed help on the format argument")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output (list moved/deleted files. For list action, list reason to keep each file)")
     parser.add_argument("--retention", default="all", help="Retention mode. Specify the retention policy for backup files/directories. The default value is 'all', which keeps all files. Other supported retention modes are earliest, latest, hours, days, weeks, fortnights, months, quarters, half-years and years. Add =N after the mode to specify the number of files to be retained. N defaults to 1 if not specified. Multiple retention modes can be combined by separated by spaces.")
     parser.add_argument("--help_retention", action="store_true", help="display more detailed help on the retention argument")
@@ -345,6 +357,33 @@ def main():
     args = parser.parse_args()
 
     quit_now = False
+
+    if args.help_format:
+        print("""
+Format
+------
+The format tells the script what files or directories to look for. The default format is '{YYYY}{MM}{DD}T{hh}{mm}', which will match files or directories with names like '20230517T0901'.
+You can customize the format by using these placeholders in curly brackets:
+{YYYY} = year
+{MM}   = month
+{DD}   = day
+{hh}   = hour
+{mm}   = minute
+{hh} and {mm} are optional. You can use wildcards ? and *. If you add literal characters to the format, only files with those exact characters will be found. For example, 'data_{YYYY}{MM}{DD}.txt' will match files like 'data_20230517.txt', but not 'data_20230517T0900.txt' (literal T, hours and minutes are not in the format) or '20230517' (lack the "data_" part).
+
+Examples:
+'{YYYY}-{MM}-{DD}' will match names such as '2023-05-20'
+'?{YYYY}{MM}{DD}*' will match names like 'X20230520' or 'Y20210101T0100'.
+'{YYYY}/{MM}/{DD}' will match names like '2023/05/20, where the different parts of the date are in different directories.
+
+You may add diretories after the date/time part. Only paths that include the full format will then be processed.
+Examples:
+'data_{YYYY}{MM}{DD}/subdir/somefile.txt' will match files like 'data_20230905/subdir/somefile.txt'
+'data_{YYYY}{MM}{DD}/subdir/somefile.txt' will *not* match 'data_20230905/subdir/ if the file somefile.txt doesn't exist or if the subdir directory doesn't exist.
+This is useful for example if you have multiple backups from different dates, but you want to remove one particular file or directory from all backups, except for example the last one (retention='latest').
+""")
+        quit_now = True
+
     if args.help_retention:
         print("""
 Retention mode
