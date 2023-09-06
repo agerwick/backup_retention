@@ -8,7 +8,7 @@ It is highly configurable and can work with files or directories of any time and
 
 ### Progressive Retention (add --method=progressive to enable)
 
-`python backup_retention.py /home/me/my_backups --retention "latest=3 days=7 weeks=6 months=12 quarters=12 years=10" --verbose --action=list **--method=progressive**`
+`python backup_retention.py /home/me/my_backups --retention "latest=3 days=7 weeks=6 months=12 quarters=12 years=10" --verbose --action=list --method=progressive`
 
 The command above ensures the retention of specific files based on the following criteria:
 - the latest 3 files, regardless of timestamp
@@ -19,9 +19,12 @@ The command above ensures the retention of specific files based on the following
 - the latest file for the first 10 years (the first 3 years are already covered by quarters=12. For the remaining 7 years, only one file per year is retained)
 - files older than 10 years, and those not covered by the above statements will be listed, moved or deleted, depending on your action.
 
+Note that with *Progressive Retention*, it is pretty much guaranteed that some of the latest files will have multiple retention criteria applied to them at the same time. For example, the latest file will also be the latest file of the day, week, fortnight, quarter, half-year and year. This guarantees that the longest time period specified (in this case, years=10) will be the absolute cutoff for how long files will be stored.
+If you only want to start counting the first 7 days *after* the latest 3 files, then you should use *Cumulative Retention*.
+
 ### Cumulative Retention (default)
 
-`python backup_retention.py /home/me/my_backups --retention "latest=3 days=7 weeks=6 months=12 quarters=8 years=5" --verbose --action=list **--method=cumulative**`
+`python backup_retention.py /home/me/my_backups --retention "latest=3 days=7 weeks=6 months=12 quarters=8 years=5" --verbose --action=list --method=cumulative`
 
 The command above ensures the retention of specific files based on the following criteria:
 - the latest 3 files, regardless of timestamp
@@ -31,7 +34,6 @@ The command above ensures the retention of specific files based on the following
 - the latest file for the first 8 quarters (starting after the first 12 months+6 weeks+7 days, the latest file in next 8 quarters (two years) will be retained)
 - the latest file for the first 10 years (starting after the first 8 quarters+12 months+6 weeks+7 days, the latest file in next 10 years will be retained)
 - files older than that, and those not covered by the above statements will be listed, moved or deleted, depending on your action.
-
 
 You can experiment with the input parameters until you find something that works for you, then change --action=list to --action=delete or --action-move destination=/my_other_backup_space
 
