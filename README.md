@@ -35,7 +35,7 @@ The command above ensures the retention of specific files based on the following
 - the latest file for the first 10 years (starting after the first 8 quarters+12 months+6 weeks+7 days, the latest file in next 10 years will be retained)
 - files older than that, and those not covered by the above statements will be listed, moved or deleted, depending on your action.
 
-You can experiment with the input parameters until you find something that works for you, then change --action=list to --action=delete or --action-move destination=/my_other_backup_space
+You can experiment with the input parameters until you find something that works for you, then change --action=list to --action=delete or --action=move --destination=/my_other_backup_space
 
 The default action is list, to prevent accidental deletion.
 
