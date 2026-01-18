@@ -26,7 +26,7 @@ If you only want to start counting the first 7 days *after* the latest 3 files, 
 
 ### Cumulative Retention (default)
 
-`python backup_retention.py /home/me/my_backups --retention "latest=3 days=7 weeks=6 months=12 quarters=8 years=5" --verbose --action=list --method=cumulative`
+`python backup_retention.py /home/me/my_backups --retention "latest=3 days=7 weeks=6 months=12 quarters=8 years=10" --verbose --action=list --method=cumulative`
 
 The command above ensures the retention of specific files based on the following criteria:
 
