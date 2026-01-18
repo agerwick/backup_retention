@@ -1,3 +1,8 @@
 To activate the Pipenv shell and work within the environment, run the following command:
 pipenv shell
 
+To use uv instead (recommended):
+uv venv --python 3.13
+See https://github.com/astral-sh/uv for more info.
+
+No fancy stuff has been used, so it should work will with python 3.8 and up.

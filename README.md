@@ -1,4 +1,5 @@
-## backup_retention
+# backup_retention
+
 backup_retention is a script to move/delete old backups, while keeping some selected ones. It is used to keep more of the recent backups, but remove some of them the older they get, so your backup space doesn't fill up but you still have backups from different times.
 It is highly configurable and can work with files or directories of any time and date format (except am/pm - who uses that on file names anyway?).
 
@@ -11,11 +12,12 @@ It is highly configurable and can work with files or directories of any time and
 `python backup_retention.py /home/me/my_backups --retention "latest=3 days=7 weeks=6 months=12 quarters=12 years=10" --verbose --action=list --method=progressive`
 
 The command above ensures the retention of specific files based on the following criteria:
+
 - the latest 3 files, regardless of timestamp
 - the latest file for the first 7 days
-- the latest file for the first 6 weeks (the first week, all files will be retained becuase of days=7, then the next 5 weeks only the latest per week)
+- the latest file for the first 6 weeks (the first week, all files will be retained because of days=7, then the next 5 weeks only the latest per week)
 - the latest file for the first 12 months (as the first 6 weeks are saved anyway, 10-11 additional files will be retained the first year)
-- the latest file for the first 12 quarters (after the first 12 months (4 quarters), an additonal 8 quarters will be retained)
+- the latest file for the first 12 quarters (after the first 12 months (4 quarters), an additional 8 quarters will be retained)
 - the latest file for the first 10 years (the first 3 years are already covered by quarters=12. For the remaining 7 years, only one file per year is retained)
 - files older than 10 years, and those not covered by the above statements will be listed, moved or deleted, depending on your action.
 
@@ -27,6 +29,7 @@ If you only want to start counting the first 7 days *after* the latest 3 files, 
 `python backup_retention.py /home/me/my_backups --retention "latest=3 days=7 weeks=6 months=12 quarters=8 years=5" --verbose --action=list --method=cumulative`
 
 The command above ensures the retention of specific files based on the following criteria:
+
 - the latest 3 files, regardless of timestamp
 - the latest file for the first 7 days
 - the latest file for the first 6 weeks (starting after the first 7 days, the latest file in next 6 weeks will be retained)
@@ -41,7 +44,7 @@ The default action is list, to prevent accidental deletion.
 
 To get a complete list of input parameters, use --help
 
-## Backup diretory structures
+## Backup directory structures
 
 Here are some examples of a typical backup directory structures that would work fine, and the matching format string:
 
@@ -123,7 +126,6 @@ In order to remove empty directories, you can simply run rmdir on all directorie
 
 The above command will only delete the last empty subdirectory each time it's run, but if next time the parent directory is also empty, then it will be deleted too. So all empty directories will *eventually* be deleted. If this is a problem for you, you can run it multiple times :)
 
-
 ## Running backup_retention after each backup
 
 To run the backup_retention script automatically after your backup, add something like this at the end of your backup script:
@@ -139,3 +141,24 @@ It assumes your backups are in ~/backup/ on your backup server and that you have
 
     git clone https://github.com/agerwick/backup_retention.git
 
+## Note
+
+This script was written in a time before AI LLMs - an ancient time when you actually had to research and write code for yourself.
+Those were fun times!
+
+## License
+
+Copyright (C) 2023-2026 Ronny Ager-Wick
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.

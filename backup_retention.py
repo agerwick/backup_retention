@@ -32,6 +32,11 @@ def get_matching_files(directory, file_format):
         - Any other parts of the file format will be treated as literal characters.
         - The function uses the `glob` module to find files based on the generated file pattern.
 
+    See README.md for more details.
+        
+    License:
+        Copyright (c) 2023-2026 Ronny Ager-Wick, http://ronny.ager-wick.com
+        This script is provided under the GNU General Public License. See the LICENSE file for details.
     """
     file_pattern = file_format
     for timeUnit in ["{YYYY}", "{MM}", "{DD}", "{hh}", "{mm}"]:
@@ -388,17 +393,17 @@ This is useful for example if you have multiple backups from different dates, bu
         print("""
 Retention mode
 --------------
-latest=N     - N is the number of consequtive file(s) with the latest timestamp that you want to retain
+latest=N     - N is the number of consecutive file(s) with the latest timestamp that you want to retain
 newest=N     - synonym of latest
-earliest=N   - N is the number of consequtive file(s) with the earliest timestamp that you want to retain
+earliest=N   - N is the number of consecutive file(s) with the earliest timestamp that you want to retain
 oldest=N     - synonym of earliest
 hours=N      - N is the number of hours from which you want to retain the latest file.
 days=N       - N is the number of days from which you want to retain the latest file.
 weeks=N      - N is the number of weeks from which you want to retain the latest file.
 fortnights=N - N is the number of fortnights (14 days) from which you want to retain the latest file.
 months=N     - N is the number of months from which you want to retain the latest file.
-quarters=N   - N is the number of quarters (3 momths) from which you want to retain the latest file.
-half-years=N - N is the number of helf-years (6 months) from which you want to retain the latest file.
+quarters=N   - N is the number of quarters (3 months) from which you want to retain the latest file.
+half-years=N - N is the number of half-years (6 months) from which you want to retain the latest file.
 years=N      - N is the number of years from which you want to retain the latest file.
 
 Leaving out the "=N" part is equal to "=1".
@@ -438,10 +443,10 @@ this results in the following being retained:
 - the latest file for the first 8 quarters (starting after the first 12 months+6 weeks+7 days+3 files, the latest file in next 8 quarters (two years) will be retained)
 - the latest file for the first 10 years (starting after the first 8 quarters+12 months+6 weeks+7 days+3 files, the latest file in next 10 years will be retained)
 - files older than that, and those not covered by the above statements will be listed, moved or deleted, depending on your action.
-              
+
 Note that all files not matching the file_format will be retained, regardless of date/time. If you use the default format of "{YYYY}{MM}{DD}T{hh}{mm}", for example, the file "20230517T0901" will match and be processed to see if it should be retained or not, but "20230517T090100" (with seconds), "20230517T0900.ext" (extra characters) or "202302307T0900" (invalid date) will not match. Such files will be ignored, and will thus be retained.
 Any files with a timestamp in the future will also be ignored, and thus retained.
-              
+
 In general, all else being equal, Cumulative retention will keep files for longer than Progressive retention, and it will also keep more of the latest files.
 Progressive retention will apply only one reason to keep a file for each file, while Cumulative retention may apply several reasons to the same file (for example a file could be both the latest file and the latest file that day, week, month and year), thus it will "use up" the retention criteria faster than Progressive retention.""")
         quit_now = True
