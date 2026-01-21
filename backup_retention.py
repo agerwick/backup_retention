@@ -65,13 +65,21 @@ def generate_regex_pattern(file_format):
     Examples:
         file_format = "file_*.txt"
         regex_pattern = generate_regex_pattern(file_format)
-        # regex_pattern = r"^file_\w*\.txt$"
         
         file_format = '{YYYY}{MM}{DD}T{hh}{mm}'
         regex_pattern = generate_regex_pattern(file_format)
-        # regex_pattern = '^(?P<YYYY>\\d{4})(?P<MM>\\d{2})(?P<DD>\\d{2})T(?P<hh>\\d{2})(?P<mm>\\d{2})$'
 
+        (see the code for the exact regex patterns generated - examples are in a comment below the docstring)
     """
+    # for the first example:
+    #     regex_pattern = r"^file_\w*\.txt$"
+    # for the second example:
+    #     regex_pattern = '^(?P<YYYY>\\d{4})(?P<MM>\\d{2})(?P<DD>\\d{2})T(?P<hh>\\d{2})(?P<mm>\\d{2})$'
+    """
+        Note: the regex patterns had to be removed from the docstring because it kept giving an error message when running the script:
+        /srv/backup/backup_retention/backup_retention.py:49: SyntaxWarning: invalid escape sequence '\w'
+    """
+
     regex_pattern = file_format
     # Replace ? with regex pattern matching any single character
     regex_pattern = regex_pattern.replace("?", r"\w")
