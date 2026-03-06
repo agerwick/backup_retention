@@ -141,6 +141,27 @@ It assumes your backups are in ~/backup/ on your backup server and that you have
 
     git clone https://github.com/agerwick/backup_retention.git
 
+## If you cannot install the backup_retention script on the remote server
+
+You can run the script locally and connect to the remote server via SSH or SFTP. Instead of a local directory path, specify the location as:
+
+    ssh://user@hostname/path
+    or
+    sftp://user@hostname/path
+
+Example:
+
+    python backup_retention.py ssh://backup@storage.example.com/backups --retention "latest=3 days=7 months=6" --verbose --action=list
+
+The script will try SSH key authentication first. If that fails, you'll be prompted for a password.
+
+Requirements:
+
+- Install paramiko: `pip install paramiko` or `uv pip install -r requirements.txt`
+- SSH/SFTP access to the remote server
+
+This is useful for storage boxes or servers where you cannot install Python or the script itself, but have SSH/SFTP access.
+
 ## Note
 
 This script was written in a time before AI LLMs - an ancient time when you actually had to research and write code for yourself.

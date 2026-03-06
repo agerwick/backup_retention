@@ -6,8 +6,245 @@ from datetime import datetime
 from glob import glob
 import re
 import shutil
+from urllib.parse import urlparse
+import stat
+import getpass
 
-def get_matching_files(directory, file_format):
+# Try to import paramiko for SSH/SFTP support
+try:
+    import paramiko
+    PARAMIKO_AVAILABLE = True
+except ImportError:
+    PARAMIKO_AVAILABLE = False
+
+class FileSystemAdapter:
+    """
+    Abstraction layer for file system operations that works with both local and remote (SSH/SFTP) filesystems.
+    """
+    def __init__(self, location, password=None):
+        """
+        Initialize the filesystem adapter.
+        
+        Args:
+            location (str): Either a local directory path or a URL in the format ssh://user@host/path or sftp://user@host/path
+            password (str): Optional password for SSH authentication. If not provided, will try SSH keys or prompt.
+        """
+        self.is_remote = False
+        self.ssh_client = None
+        self.sftp_client = None
+        self.base_path = location
+        
+        # Parse the location to determine if it's remote
+        if location.startswith('ssh://') or location.startswith('sftp://'):
+            if not PARAMIKO_AVAILABLE:
+                print("Error: paramiko library is required for SSH/SFTP support.")
+                print("Install it with: pip install paramiko")
+                sys.exit(1)
+                
+            self.is_remote = True
+            parsed = urlparse(location)
+            self.hostname = parsed.hostname
+            self.port = parsed.port or 22
+            self.username = parsed.username
+            self.remote_path = parsed.path or '/'
+            
+            if not self.username:
+                print(f"Error: Username required in URL format: ssh://user@host/path")
+                sys.exit(1)
+            
+            # Establish SSH connection
+            self._connect(password)
+        else:
+            # Local filesystem
+            self.base_path = os.path.abspath(location)
+    
+    def _connect(self, password=None):
+        """Establish SSH/SFTP connection to remote server."""
+        try:
+            self.ssh_client = paramiko.SSHClient()
+            self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            
+            # Try to connect with SSH key first, then password
+            try:
+                self.ssh_client.connect(
+                    hostname=self.hostname,
+                    port=self.port,
+                    username=self.username,
+                    password=password,
+                    look_for_keys=True,
+                    allow_agent=True
+                )
+            except paramiko.AuthenticationException:
+                if password is None:
+                    # Prompt for password
+                    password = getpass.getpass(f"Password for {self.username}@{self.hostname}: ")
+                    self.ssh_client.connect(
+                        hostname=self.hostname,
+                        port=self.port,
+                        username=self.username,
+                        password=password,
+                        look_for_keys=False,
+                        allow_agent=False
+                    )
+                else:
+                    raise
+            
+            self.sftp_client = self.ssh_client.open_sftp()
+            print(f"Connected to {self.username}@{self.hostname}:{self.port}")
+            
+        except Exception as e:
+            print(f"Error connecting to remote server: {e}")
+            sys.exit(1)
+    
+    def close(self):
+        """Close SSH/SFTP connection."""
+        if self.sftp_client:
+            self.sftp_client.close()
+        if self.ssh_client:
+            self.ssh_client.close()
+    
+    def listdir(self, path):
+        """List directory contents."""
+        if self.is_remote:
+            try:
+                return self.sftp_client.listdir(path)
+            except IOError:
+                return []
+        else:
+            if os.path.exists(path):
+                return os.listdir(path)
+            return []
+    
+    def exists(self, path):
+        """Check if a path exists."""
+        if self.is_remote:
+            try:
+                self.sftp_client.stat(path)
+                return True
+            except IOError:
+                return False
+        else:
+            return os.path.exists(path)
+    
+    def isfile(self, path):
+        """Check if path is a file."""
+        if self.is_remote:
+            try:
+                return stat.S_ISREG(self.sftp_client.stat(path).st_mode)
+            except IOError:
+                return False
+        else:
+            return os.path.isfile(path)
+    
+    def isdir(self, path):
+        """Check if path is a directory."""
+        if self.is_remote:
+            try:
+                return stat.S_ISDIR(self.sftp_client.stat(path).st_mode)
+            except IOError:
+                return False
+        else:
+            return os.path.isdir(path)
+    
+    def remove(self, path):
+        """Remove a file."""
+        if self.is_remote:
+            self.sftp_client.remove(path)
+        else:
+            os.remove(path)
+    
+    def rmdir(self, path):
+        """Remove a directory recursively."""
+        if self.is_remote:
+            self._remote_rmtree(path)
+        else:
+            shutil.rmtree(path)
+    
+    def _remote_rmtree(self, path):
+        """Recursively remove a directory on remote server."""
+        files = self.sftp_client.listdir(path)
+        for file in files:
+            filepath = path + '/' + file
+            if self.isdir(filepath):
+                self._remote_rmtree(filepath)
+            else:
+                self.sftp_client.remove(filepath)
+        self.sftp_client.rmdir(path)
+    
+    def makedirs(self, path):
+        """Create directory and any necessary parent directories."""
+        if self.is_remote:
+            # Create directories recursively
+            dirs = []
+            current = path
+            while current and current != '/':
+                if not self.exists(current):
+                    dirs.append(current)
+                current = '/'.join(current.split('/')[:-1])
+                if not current:
+                    current = '/'
+            
+            for dir_path in reversed(dirs):
+                try:
+                    self.sftp_client.mkdir(dir_path)
+                except IOError:
+                    pass  # Directory might already exist
+        else:
+            os.makedirs(path, exist_ok=True)
+    
+    def move(self, src, dst):
+        """Move a file or directory."""
+        if self.is_remote:
+            # For remote, we use rename
+            self.sftp_client.rename(src, dst)
+        else:
+            shutil.move(src, dst)
+    
+    def join(self, *parts):
+        """Join path components."""
+        if self.is_remote:
+            # Use forward slashes for remote paths
+            return '/'.join(str(p).strip('/') for p in parts if p)
+        else:
+            return os.path.join(*parts)
+    
+    def glob(self, pattern):
+        """
+        Find files matching a pattern.
+        For remote servers, we need to implement glob manually.
+        """
+        if self.is_remote:
+            return self._remote_glob(pattern)
+        else:
+            return glob(pattern)
+    
+    def _remote_glob(self, pattern):
+        """Implement glob for remote filesystem."""
+        # Split the pattern into directory and filename parts
+        dir_part = '/'.join(pattern.split('/')[:-1])
+        file_pattern = pattern.split('/')[-1]
+        
+        if not dir_part:
+            dir_part = self.remote_path
+        
+        # Convert glob pattern to regex
+        regex_pattern = file_pattern.replace('.', r'\.').replace('*', '.*').replace('?', '.')
+        regex_pattern = '^' + regex_pattern + '$'
+        
+        try:
+            files = self.sftp_client.listdir(dir_part)
+            matching_files = []
+            for file in files:
+                if re.match(regex_pattern, file):
+                    if dir_part == '/':
+                        matching_files.append('/' + file)
+                    else:
+                        matching_files.append(dir_part + '/' + file)
+            return matching_files
+        except IOError:
+            return []
+
+def get_matching_files(directory, file_format, fs_adapter):
     """
     Retrieve a list of files in the specified directory that match the given file format.
 
@@ -17,6 +254,7 @@ def get_matching_files(directory, file_format):
             "{MM}" for month, "{DD}" for day, "{hh}" for hour, and "{mm}" for minute.
             Any of these placeholders will be replaced with "*" in the file pattern.
             Literal characters as well as wildcards * and ? may of course also be added.
+        fs_adapter (FileSystemAdapter): Filesystem adapter for local or remote operations.
 
     Returns:
         list: A list of file paths that match the specified file format.
@@ -24,13 +262,13 @@ def get_matching_files(directory, file_format):
     Example:
         directory = "/path/to/files"
         file_format = "data_{YYYY}{MM}{DD}.txt"
-        matching_files = get_matching_files(directory, file_format)
+        matching_files = get_matching_files(directory, file_format, fs_adapter)
         # Returns a list of files in the directory that match the format "data_YYYYMMDD.txt".
 
     Note:
         - The file format should follow the specified placeholders for year, month, day, hour, and minute.
         - Any other parts of the file format will be treated as literal characters.
-        - The function uses the `glob` module to find files based on the generated file pattern.
+        - The function uses the filesystem adapter to find files based on the generated file pattern.
 
     See README.md for more details.
         
@@ -42,7 +280,9 @@ def get_matching_files(directory, file_format):
     for timeUnit in ["{YYYY}", "{MM}", "{DD}", "{hh}", "{mm}"]:
         if timeUnit in file_format:
             file_pattern = file_pattern.replace(timeUnit, "*")
-    files = glob(os.path.join(directory, file_pattern))
+    
+    full_pattern = fs_adapter.join(directory, file_pattern)
+    files = fs_adapter.glob(full_pattern)
     return files
 
 def generate_regex_pattern(file_format):
@@ -204,7 +444,7 @@ def list_files(file_flags, verbose):
             for file, flags in file_flags_items:
                 print(file) if not flags else None
 
-def move_files(file_flags, destination, verbose, test_mode=False):
+def move_files(file_flags, destination, verbose, fs_adapter, test_mode=False):
     """
     Moves files not to be retained to a different directory.
 
@@ -212,6 +452,7 @@ def move_files(file_flags, destination, verbose, test_mode=False):
         file_flags (dict): A dictionary containing file paths as keys and their corresponding retention flags as values.
         destination (str): The destination directory where the files will be moved.
         verbose (bool): If True, provides detailed information about each file move.
+        fs_adapter (FileSystemAdapter): Filesystem adapter for local or remote operations.
 
     If the destination directory exists, files not to be retained are moved to that directory.
     If the destination directory does not exist, it is created. If any errors occur during the move operation,
@@ -224,14 +465,17 @@ def move_files(file_flags, destination, verbose, test_mode=False):
             'file3.txt': ['Reason1']
         }
         destination = '/path/to/destination'
-        move_files(file_flags, destination, True)
+        move_files(file_flags, destination, True, fs_adapter)
         # Output:
         # moving file2.txt to /path/to/destination...
         # Files not to be retained have been moved to the destination directory.
 
     """
-    if os.path.exists(destination):
-        if not os.path.isdir(destination):
+    exists = fs_adapter.exists(destination)
+    isdir = fs_adapter.isdir(destination) if exists else False
+    
+    if exists:
+        if not isdir:
             msg = f"Error: Destination '{destination}' is not a directory."
             if test_mode:
                 return msg
@@ -240,8 +484,8 @@ def move_files(file_flags, destination, verbose, test_mode=False):
                 sys.exit(1)
     else:
         try:
-            os.makedirs(destination)
-        except OSError as e:
+            fs_adapter.makedirs(destination)
+        except (OSError, IOError) as e:
             msg = f"Error creating destination directory: {e}"
             if test_mode:
                 return msg
@@ -252,19 +496,23 @@ def move_files(file_flags, destination, verbose, test_mode=False):
     for file, flags in sorted(file_flags.items()):
         if not flags:  # No flags present for the file
             print(f"moving {file} to {destination}...", flush=True) if verbose else None
-            shutil.move(file, destination)
+            # Extract just the filename for destination
+            filename = file.split('/')[-1]
+            dest_path = fs_adapter.join(destination, filename)
+            fs_adapter.move(file, dest_path)
         else:
             flags_str = ", ".join(flags)
             print(f"keeping  {file} -- {flags_str}") if verbose else None
 
 
-def delete_files(file_flags, verbose):
+def delete_files(file_flags, verbose, fs_adapter):
     """
     Deletes files not to be retained.
 
     Args:
         file_flags (dict): A dictionary containing file paths as keys and their corresponding retention flags as values.
         verbose (bool): If True, provides detailed information about each file deletion.
+        fs_adapter (FileSystemAdapter): Filesystem adapter for local or remote operations.
 
     Files not to be retained are deleted from the file system. If any errors occur during the deletion process,
     an error message is printed.
@@ -275,7 +523,7 @@ def delete_files(file_flags, verbose):
             'file2.txt': [],
             'file3.txt': ['Reason1']
         }
-        delete_files(file_flags, True)
+        delete_files(file_flags, True, fs_adapter)
         # Output:
         # deleting file2.txt...
         # Files not to be retained have been deleted.
@@ -285,11 +533,11 @@ def delete_files(file_flags, verbose):
         if not flags:  # No flags present for the file
             print(f"deleting {file}...", flush=True) if verbose else None
             try:
-                if os.path.isfile(file):
-                    os.remove(file)
-                elif os.path.isdir(file):
-                    shutil.rmtree(file)
-            except OSError as e:
+                if fs_adapter.isfile(file):
+                    fs_adapter.remove(file)
+                elif fs_adapter.isdir(file):
+                    fs_adapter.rmdir(file)
+            except (OSError, IOError) as e:
                 print(f"Error deleting file or directory '{file}': {e}")
         else:
             flags_str = ", ".join(flags)
@@ -353,8 +601,8 @@ def parse_retention(retention_string, test_mode=False):
     return retention_dict
 
 def main():
-    parser = argparse.ArgumentParser(description="Backup retention script")
-    parser.add_argument("directory", nargs="?", default=os.getcwd(), help="Directory to process. default=current. Will attempt to create directory if it doesn't exist")
+    parser = argparse.ArgumentParser(description="Backup retention script with support for local and remote (SSH/SFTP) filesystems")
+    parser.add_argument("directory", nargs="?", default=os.getcwd(), help="Directory to process (local path or ssh://user@host/path or sftp://user@host/path). Default=current directory for local, required for remote.")
     parser.add_argument("--action", choices=["list", "move", "delete"], default="list", help="Action to perform. default=list")
     parser.add_argument("--destination", help="Destination directory for move action")
     parser.add_argument("--format", default="{YYYY}{MM}{DD}T{hh}{mm}", help="File format. Specify the format for the file names or directory names to match. The default format is '{YYYY}{MM}{DD}T{hh}{mm}'. You can customize the format by using placeholders: {YYYY} for year, {MM} for month, {DD} for day, {hh} for hour, and {mm} for minute, the latter two are optional. You can use wildcards ? and *. Literal characters may also be added. See --help-format for more details.")
@@ -364,6 +612,7 @@ def main():
     parser.add_argument("--help_retention", action="store_true", help="display more detailed help on the retention argument")
     parser.add_argument("--method", default="cumulative", choices=["progressive", "cumulative"], help="Progressive retention retains files based on specific time intervals, starting from the most recent and extending to older files. Cumulative retention accumulates retention criteria over time, gradually expanding the range of files to be retained based on increasing time intervals. See --help-method for more details. Default=cumulative")
     parser.add_argument("--help_method", action="store_true", help="display more detailed help on the method argument")
+    parser.add_argument("--password", help="Password for SSH/SFTP authentication (will be prompted if not provided and key-based auth fails)")
 
     args = parser.parse_args()
 
@@ -392,6 +641,27 @@ Examples:
 'data_{YYYY}{MM}{DD}/subdir/somefile.txt' will match files like 'data_20230905/subdir/somefile.txt'
 'data_{YYYY}{MM}{DD}/subdir/somefile.txt' will *not* match 'data_20230905/subdir/ if the file somefile.txt doesn't exist or if the subdir directory doesn't exist.
 This is useful for example if you have multiple backups from different dates, but you want to remove one particular file or directory from all backups, except for example the last one (retention='latest').
+
+Remote Filesystem Support (SSH/SFTP)
+-------------------------------------
+You can run the script on your local machine while managing files on a remote server via SSH or SFTP.
+Instead of a local directory path, specify the location as:
+  ssh://user@hostname/path
+  or
+  sftp://user@hostname/path
+
+Examples:
+  ssh://backup@storage.example.com/backups
+  sftp://john@192.168.1.100/home/john/backups
+
+Authentication:
+- The script will first try to use SSH keys (from ~/.ssh/)
+- If key-based authentication fails, you'll be prompted for a password
+- You can also use --password option to provide the password via command line (not recommended for security reasons)
+
+Requirements for remote operations:
+- The paramiko library must be installed: pip install paramiko
+- SSH/SFTP access to the target server
 """)
         quit_now = True
 
@@ -465,6 +735,18 @@ Progressive retention will apply only one reason to keep a file for each file, w
             parser.error("Destination directory required for move action")
 
     retention = parse_retention(args.retention)
+    
+    # Initialize filesystem adapter for local or remote operations
+    fs_adapter = FileSystemAdapter(args.directory, password=args.password)
+    
+    # Extract the target directory based on whether it's remote or local
+    if args.directory.startswith('ssh://') or args.directory.startswith('sftp://'):
+        # Remote filesystem - extract path from URL
+        parsed = urlparse(args.directory)
+        target_directory = parsed.path or '/'
+    else:
+        # Local filesystem - use absolute path
+        target_directory = os.path.abspath(args.directory)
 
     if args.verbose:
         print("Backup retention arguments:")
@@ -485,7 +767,7 @@ Progressive retention will apply only one reason to keep a file for each file, w
         print("Error: File format must contain at least {YYYY}, {MM} and {DD}")
         sys.exit(1)
 
-    files = get_matching_files(args.directory, args.format)
+    files = get_matching_files(target_directory, args.format, fs_adapter)
     file_datetime_map = {}
     file_flags = {}
 
@@ -643,9 +925,14 @@ Progressive retention will apply only one reason to keep a file for each file, w
     if args.action=="list":
         list_files(file_flags, args.verbose)
     elif args.action=="delete":
-        delete_files(file_flags, args.verbose)
+        delete_files(file_flags, args.verbose, fs_adapter)
     elif args.action=="move":
-        move_files(file_flags, args.destination, args.verbose)
+        move_files(file_flags, args.destination, args.verbose, fs_adapter)
+    
+    # Close connection (gracefully handles both remote and local)
+    fs_adapter.close()
+    if fs_adapter.is_remote:
+        print("Connection closed.")
 
 
 if __name__ == "__main__":

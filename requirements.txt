@@ -1,0 +1,5 @@
+# Requirements for backup_retention.py
+# Install with: uv pip install -r requirements.txt
+# or: pip install -r requirements.txt
+
+paramiko>=2.7.0
