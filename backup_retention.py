@@ -580,6 +580,14 @@ def parse_retention(retention_string, test_mode=False):
                 else:
                     print(msg)
                     sys.exit(1)
+            # Validate that count is not negative
+            if count < 0:
+                msg=f"Error: Retention count cannot be negative: \"{parts[1]}\" in \"{parts}\""
+                if test_mode:
+                    return msg
+                else:
+                    print(msg)
+                    sys.exit(1)
         time_unit = parts[0]
         if time_unit in ['years', 'half-years', 'quarters', 'months', 'fortnights', 'weeks', 'days', 'hours', 'latest', 'earliest', 'newest', 'oldest']:
             # replace synonyms
@@ -735,8 +743,10 @@ Progressive retention will apply only one reason to keep a file for each file, w
             parser.error("Destination directory required for move action")
 
     retention = parse_retention(args.retention)
-    
-    # Initialize filesystem adapter for local or remote operations
+        # Filter out retention entries with count=0 (equivalent to not specifying them)
+    # This prevents edge cases in cumulative retention logic
+    retention = {k: v for k, v in retention.items() if v != 0 and v != '0'}
+        # Initialize filesystem adapter for local or remote operations
     fs_adapter = FileSystemAdapter(args.directory, password=args.password)
     
     # Extract the target directory based on whether it's remote or local
@@ -900,7 +910,9 @@ Progressive retention will apply only one reason to keep a file for each file, w
             
                 if (retention_count < 1 # no more files from this group to be added
                 or group == last_group): # ran out of files (retention_count still not 0 even at the last group
-                    if args.method == "cumulative":
+                    if args.method == "cumulative" and original_retention_count > 0:
+                        # Only set last_file_in_previous_group if we actually retained files
+                        # Otherwise time units with count=0 would cause the next unit to skip files
                         last_file_in_previous_group = current_file # where to start processing when iterating over the next time_unit
                     break # no point continuing with further groups in this time_unit if we've already used all of retention_count
             if args.method == "cumulative" and not group_has_been_iterated_through_at_least_once: 
