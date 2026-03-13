@@ -26,7 +26,9 @@ class FileSystemAdapter:
         Initialize the filesystem adapter.
         
         Args:
-            location (str): Either a local directory path or a URL in the format ssh://user@host/path or sftp://user@host/path
+            location (str): Either a local directory path or a URL in rsync format:
+                - ssh://user@host:path or sftp://user@host:path (relative path from home)
+                - ssh://user@host:/path or sftp://user@host:/path (absolute path)
             password (str): Optional password for SSH authentication. If not provided, will try SSH keys or prompt.
         """
         self.is_remote = False
@@ -42,14 +44,33 @@ class FileSystemAdapter:
                 sys.exit(1)
                 
             self.is_remote = True
-            parsed = urlparse(location)
+            
+            # Use rsync-style syntax: ssh://user@host:path or ssh://user@host:/path
+            # Always expect a colon after the host part
+            scheme_end = location.index('://') + 3
+            remainder = location[scheme_end:]
+            
+            if ':' not in remainder:
+                print(f"Error: Invalid format. Use ssh://user@host:path (relative) or ssh://user@host:/path (absolute)")
+                sys.exit(1)
+            
+            host_part, path_part = remainder.split(':', 1)
+            
+            # Parse the host part to extract username, hostname, and optional port
+            # Format: user@hostname or user@hostname:port
+            if '@' not in host_part:
+                print(f"Error: Username required. Use ssh://user@host:path")
+                sys.exit(1)
+            
+            temp_url = location.split(':' + path_part)[0]  # Get everything before the path
+            parsed = urlparse(temp_url)
             self.hostname = parsed.hostname
             self.port = parsed.port or 22
             self.username = parsed.username
-            self.remote_path = parsed.path or '/'
+            self.remote_path = path_part or '.'
             
             if not self.username:
-                print(f"Error: Username required in URL format: ssh://user@host/path")
+                print(f"Error: Username required. Use ssh://user@host:path")
                 sys.exit(1)
             
             # Establish SSH connection
@@ -610,7 +631,7 @@ def parse_retention(retention_string, test_mode=False):
 
 def main():
     parser = argparse.ArgumentParser(description="Backup retention script with support for local and remote (SSH/SFTP) filesystems")
-    parser.add_argument("directory", nargs="?", default=os.getcwd(), help="Directory to process (local path or ssh://user@host/path or sftp://user@host/path). Default=current directory for local, required for remote.")
+    parser.add_argument("directory", nargs="?", default=os.getcwd(), help="Directory to process (local path, ssh://user@host:path for relative remote path, or ssh://user@host:/path for absolute remote path). Default=current directory for local, required for remote.")
     parser.add_argument("--action", choices=["list", "move", "delete"], default="list", help="Action to perform. default=list")
     parser.add_argument("--destination", help="Destination directory for move action")
     parser.add_argument("--format", default="{YYYY}{MM}{DD}T{hh}{mm}", help="File format. Specify the format for the file names or directory names to match. The default format is '{YYYY}{MM}{DD}T{hh}{mm}'. You can customize the format by using placeholders: {YYYY} for year, {MM} for month, {DD} for day, {hh} for hour, and {mm} for minute, the latter two are optional. You can use wildcards ? and *. Literal characters may also be added. See --help-format for more details.")
@@ -653,14 +674,17 @@ This is useful for example if you have multiple backups from different dates, bu
 Remote Filesystem Support (SSH/SFTP)
 -------------------------------------
 You can run the script on your local machine while managing files on a remote server via SSH or SFTP.
-Instead of a local directory path, specify the location as:
-  ssh://user@hostname/path
-  or
-  sftp://user@hostname/path
+Uses rsync-style syntax. Always use a colon after the hostname:
+  ssh://user@hostname:path   (relative path from user's home directory)
+  ssh://user@hostname:/path  (absolute path on remote server)
+
+The same applies to sftp:// URLs.
 
 Examples:
-  ssh://backup@storage.example.com/backups
-  sftp://john@192.168.1.100/home/john/backups
+  ssh://backup@storage.example.com:backups           (relative: ~/backups)
+  ssh://backup@storage.example.com:/var/backups      (absolute: /var/backups)
+  sftp://john@192.168.1.100:backups                  (relative: ~/backups)
+  sftp://john@192.168.1.100:/home/john/backups       (absolute: /home/john/backups)
 
 Authentication:
 - The script will first try to use SSH keys (from ~/.ssh/)
